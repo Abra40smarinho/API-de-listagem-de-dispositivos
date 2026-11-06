@@ -156,6 +156,34 @@ async def list_devices(
         out.append(item)
 
     return out
+@app.get("/devices/offline", dependencies=[Depends(check_key)])
+async def offline_summary(
+    manufacturer: str | None = None,
+    integration: str | None = None,
+    unavailable_match: Literal["all", "any"] = "all",
+):
+    devices = await list_devices(
+        manufacturer=manufacturer,
+        integration=integration,
+        area=None,
+        include_disabled=False,
+        include_states=False,
+        only_unavailable=True,
+        unavailable_match=unavailable_match,
+    )
+    return {
+        "count": len(devices),
+        "names": [d["name"] for d in devices],
+        "devices": [
+            {
+                "name": d["name"],
+                "model": d["model"],
+                "integrations": d["integrations"],
+                "unavailable_entities": len(d["unavailable_entities"]),
+            }
+            for d in devices
+        ],
+    }
 
 
 @app.get("/health")
