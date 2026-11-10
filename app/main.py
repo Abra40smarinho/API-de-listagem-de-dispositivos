@@ -1,15 +1,18 @@
 import os
-import json
-import secrets
-from typing import Literal
-
-import websockets
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+# Pega as origens permitidas do ambiente, ou usa uma lista padrão segura
+# No Portainer, você pode injetar a variável CORS_ORIGINS="http://localhost:8088,http://192.168.1.100:8088"
+cors_origins_env = os.environ.get("CORS_ORIGINS", "http://localhost:8088,http://10.10.10.110:8088")
+origins = [origin.strip() for origin in cors_origins_env.split(",")]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8088", "http://10.10.10.110:8088"],
+    allow_origins=origins,
+    allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["X-API-Key", "Content-Type"],
 )
