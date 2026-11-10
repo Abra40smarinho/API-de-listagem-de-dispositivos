@@ -5,6 +5,14 @@ from typing import Literal
 
 import websockets
 from fastapi import FastAPI, HTTPException, Depends, Header, Query
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8088", "http://10.10.10.110:8088"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["X-API-Key", "Content-Type"],
+)
 
 HA_URL = os.environ["HA_URL"]
 HA_TOKEN = os.environ["HA_TOKEN"]
