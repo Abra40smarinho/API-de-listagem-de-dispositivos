@@ -1,17 +1,29 @@
-import os
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"], # Ou restrito aos IPs locais desejados
     allow_methods=["GET", "POST"],
-    allow_headers=["X-API-Key", "Content-Type"],
+    allow_headers=["*"],
 )
 
+# Monta a pasta estática para servir a interface web
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/api/devices/offline")
+def get_offline_devices():
+    # Aqui entra a sua lógica que consulta o Home Assistant e filtra os indisponíveis
+    return {
+        "total_offline": 2,
+        "devices": [
+            {"entity_id": "light.sala", "name": "Luz da Sala", "status": "unavailable"},
+            {"entity_id": "switch.cozinha", "name": "Tomada Cozinha", "status": "unavailable"}
+        ]
+    }
 HA_URL = os.environ["HA_URL"]
 HA_TOKEN = os.environ["HA_TOKEN"]
 API_KEY = os.environ.get("API_KEY")  # se vazio, a API fica aberta
