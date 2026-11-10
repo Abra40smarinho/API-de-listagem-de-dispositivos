@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Painel · IoT Monitor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-200 min-h-screen">
+  <div id="nav"></div>
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-4"><p class="text-xs text-slate-400">Total de dispositivos</p><p id="m-total" class="text-3xl font-semibold mt-1 text-cyan-300">–</p></div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-4"><p class="text-xs text-slate-400">Online</p><p id="m-on" class="text-3xl font-semibold mt-1 text-emerald-400">–</p></div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-4"><p class="text-xs text-slate-400">Indisponíveis / offline</p><p id="m-off" class="text-3xl font-semibold mt-1 text-red-400">–</p></div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-4"><p class="text-xs text-slate-400">Última sincronização</p><p id="m-at" class="text-xl font-semibold mt-2 text-indigo-300">–</p></div>
+    </section>
+
+    <section class="bg-slate-800 border border-slate-700 rounded-xl">
+      <div class="p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+        <input id="q" type="search" placeholder="Buscar por nome ou entidade…" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+        <select id="area" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"><option value="">Todos os cômodos</option></select>
+        <button id="sync" class="bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-4 py-2">Sincronizar agora</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-xs uppercase text-slate-400 bg-slate-900/40">
+            <tr><th class="px-4 py-3 text-left">Status</th><th class="px-4 py-3 text-left">Dispositivo</th><th class="px-4 py-3 text-left">Entidade</th><th class="px-4 py-3 text-left">Tipo</th><th class="px-4 py-3 text-left">Localidade</th><th class="px-4 py-3 text-left">Visto por último</th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { nav, loadDevices, isOff, esc, auto, fmt } from './ui.js';
+    nav('painel.html');
+    const $ = id => document.getElementById(id);
+    const badge = {
+      unavailable: ['Offline', 'bg-red-500/15 text-red-400 border-red-500/30'],
+      partial: ['Parcial', 'bg-amber-500/15 text-amber-400 border-amber-500/30'],
+    };
+    let ds = [];
+
+    function render() {
+      const q = $('q').value.toLowerCase(), a = $('area').value;
+      const rows = ds.filter(isOff).filter(d => (!a || d.area === a) && (!q || (d.name + ' ' + d.entities.join(' ')).toLowerCase().includes(q)));
+      $('rows').innerHTML = rows.length ? rows.map(d => {
+        const [label, cls] = badge[d.status];
+        return `<tr class="border-t border-slate-700/60 hover:bg-slate-700/30">
+          <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs border ${cls}">${label}</span></td>
+          <td class="px-4 py-3 font-medium">${esc(d.name)}<div class="text-xs text-slate-500">${esc(d.model || '')}</div></td>
+          <td class="px-4 py-3 font-mono text-xs text-cyan-300">${esc(d.bad[0] || '—')}${d.bad.length > 1 ? ` <span class="text-slate-500">+${d.bad.length - 1}</span>` : ''}</td>
+          <td class="px-4 py-3">${d.types.map(t => `<span class="mr-1 px-1.5 py-0.5 rounded bg-slate-700 text-xs capitalize">${esc(t)}</span>`).join('')}</td>
+          <td class="px-4 py-3">${esc(d.area)}</td>
+          <td class="px-4 py-3 text-slate-400 whitespace-nowrap">${d.last_seen ? fmt(d.last_seen) : '—'}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="6" class="px-4 py-10 text-center text-slate-500">Nenhum dispositivo indisponível</td></tr>`;
+    }
+
+    async function sync() {
+      $('sync').disabled = true;
+      try {
+        const r = await loadDevices();
+        ds = r.ds;
+        $('m-total').textContent = ds.length;
+        $('m-on').textContent = ds.filter(d => d.status === 'ok').length;
+        $('m-off').textContent = ds.filter(isOff).length;
+        $('m-at').textContent = r.at.toLocaleTimeString('pt-BR');
+        const cur = $('area').value;
+        const areas = [...new Set(ds.map(d => d.area))].sort();
+        $('area').innerHTML = '<option value="">Todos os cômodos</option>' + areas.map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
+        render();
+      } catch { /* o toast já foi exibido */ }
+      $('sync').disabled = false;
+    }
+
+    $('q').oninput = render;
+    $('area').onchange = render;
+    $('sync').onclick = sync;
+    auto(sync);
+  </script>
+</body>
+</html>
