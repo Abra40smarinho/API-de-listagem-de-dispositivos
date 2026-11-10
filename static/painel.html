@@ -1,85 +1,150 @@
-<!doctype html>
-<html lang="pt-BR" class="dark">
+<!DOCTYPE html>
+<html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Painel · IoT Monitor</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor IoT - Dispositivos Indisponíveis</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-900 text-slate-200 min-h-screen">
-  <div id="nav"></div>
-  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
-    <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <div class="bg-slate-800 border border-slate-700 rounded-xl p-4"><p class="text-xs text-slate-400">Total de dispositivos</p><p id="m-total" class="text-3xl font-semibold mt-1 text-cyan-300">–</p></div>
-      <div class="bg-slate-800 border border-slate-700 rounded-xl p-4"><p class="text-xs text-slate-400">Online</p><p id="m-on" class="text-3xl font-semibold mt-1 text-emerald-400">–</p></div>
-      <div class="bg-slate-800 border border-slate-700 rounded-xl p-4"><p class="text-xs text-slate-400">Indisponíveis / offline</p><p id="m-off" class="text-3xl font-semibold mt-1 text-red-400">–</p></div>
-      <div class="bg-slate-800 border border-slate-700 rounded-xl p-4"><p class="text-xs text-slate-400">Última sincronização</p><p id="m-at" class="text-xl font-semibold mt-2 text-indigo-300">–</p></div>
-    </section>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6 md:p-8">
+    <div class="max-w-5xl mx-auto">
+        
+        <!-- Cabeçalho do Painel -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-slate-800 pb-6">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
+                    <span class="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-pulse" id="connection-indicator"></span>
+                    Monitor Home Assistant
+                </h1>
+                <p class="text-slate-400 text-sm mt-1">Gerenciamento em tempo real de entidades indisponíveis</p>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <!-- Contador de Offline -->
+                <div class="bg-red-500/10 text-red-400 px-4 py-2 rounded-xl font-semibold border border-red-500/20 flex items-center gap-2 shadow-inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd" />
+                    </svg>
+                    <span>Offline: <strong id="count-offline" class="text-lg">0</strong></span>
+                </div>
 
-    <section class="bg-slate-800 border border-slate-700 rounded-xl">
-      <div class="p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
-        <input id="q" type="search" placeholder="Buscar por nome ou entidade…" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
-        <select id="area" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"><option value="">Todos os cômodos</option></select>
-        <button id="sync" class="bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-4 py-2">Sincronizar agora</button>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="text-xs uppercase text-slate-400 bg-slate-900/40">
-            <tr><th class="px-4 py-3 text-left">Status</th><th class="px-4 py-3 text-left">Dispositivo</th><th class="px-4 py-3 text-left">Entidade</th><th class="px-4 py-3 text-left">Tipo</th><th class="px-4 py-3 text-left">Localidade</th><th class="px-4 py-3 text-left">Visto por último</th></tr>
-          </thead>
-          <tbody id="rows"></tbody>
-        </table>
-      </div>
-    </section>
-  </main>
+                <!-- Botão de Sincronização Manual -->
+                <button onclick="fetchOfflineDevices()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-medium transition shadow-lg shadow-indigo-600/20 flex items-center gap-2 cursor-pointer">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Atualizar
+                </button>
+            </div>
+        </header>
 
-  <script type="module">
-    import { nav, loadDevices, isOff, esc, auto, fmt } from './ui.js';
-    nav('painel.html');
-    const $ = id => document.getElementById(id);
-    const badge = {
-      unavailable: ['Offline', 'bg-red-500/15 text-red-400 border-red-500/30'],
-      partial: ['Parcial', 'bg-amber-500/15 text-amber-400 border-amber-500/30'],
-    };
-    let ds = [];
+        <!-- Card Principal da Tabela -->
+        <main class="bg-slate-800/80 backdrop-blur-md rounded-2xl p-6 shadow-2xl border border-slate-700/60">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-lg font-semibold text-slate-200">Dispositivos Fora do Ar / Indisponíveis</h2>
+                <span id="last-update" class="text-xs text-slate-400">Última atualização: --:--:--</span>
+            </div>
 
-    function render() {
-      const q = $('q').value.toLowerCase(), a = $('area').value;
-      const rows = ds.filter(isOff).filter(d => (!a || d.area === a) && (!q || (d.name + ' ' + d.entities.join(' ')).toLowerCase().includes(q)));
-      $('rows').innerHTML = rows.length ? rows.map(d => {
-        const [label, cls] = badge[d.status];
-        return `<tr class="border-t border-slate-700/60 hover:bg-slate-700/30">
-          <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs border ${cls}">${label}</span></td>
-          <td class="px-4 py-3 font-medium">${esc(d.name)}<div class="text-xs text-slate-500">${esc(d.model || '')}</div></td>
-          <td class="px-4 py-3 font-mono text-xs text-cyan-300">${esc(d.bad[0] || '—')}${d.bad.length > 1 ? ` <span class="text-slate-500">+${d.bad.length - 1}</span>` : ''}</td>
-          <td class="px-4 py-3">${d.types.map(t => `<span class="mr-1 px-1.5 py-0.5 rounded bg-slate-700 text-xs capitalize">${esc(t)}</span>`).join('')}</td>
-          <td class="px-4 py-3">${esc(d.area)}</td>
-          <td class="px-4 py-3 text-slate-400 whitespace-nowrap">${d.last_seen ? fmt(d.last_seen) : '—'}</td>
-        </tr>`;
-      }).join('') : `<tr><td colspan="6" class="px-4 py-10 text-center text-slate-500">Nenhum dispositivo indisponível</td></tr>`;
-    }
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-700 text-slate-400 text-sm uppercase tracking-wider">
+                            <th class="py-3 px-4 font-semibold">Dispositivo</th>
+                            <th class="py-3 px-4 font-semibold">Entidade (Entity ID)</th>
+                            <th class="py-3 px-4 font-semibold">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="device-table-body" class="divide-y divide-slate-700/40">
+                        <tr>
+                            <td colspan="3" class="py-8 text-center text-slate-400">
+                                Carregando dados da API...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+        
+        <footer class="text-center mt-6 text-xs text-slate-500">
+            ha-devices-api &bull; Integrado ao ambiente Docker / Portainer
+        </footer>
+    </div>
 
-    async function sync() {
-      $('sync').disabled = true;
-      try {
-        const r = await loadDevices();
-        ds = r.ds;
-        $('m-total').textContent = ds.length;
-        $('m-on').textContent = ds.filter(d => d.status === 'ok').length;
-        $('m-off').textContent = ds.filter(isOff).length;
-        $('m-at').textContent = r.at.toLocaleTimeString('pt-BR');
-        const cur = $('area').value;
-        const areas = [...new Set(ds.map(d => d.area))].sort();
-        $('area').innerHTML = '<option value="">Todos os cômodos</option>' + areas.map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
-        render();
-      } catch { /* o toast já foi exibido */ }
-      $('sync').disabled = false;
-    }
+    <!-- Script de Integração com a API -->
+    <script>
+        async function fetchOfflineDevices() {
+            const indicator = document.getElementById('connection-indicator');
+            const tbody = document.getElementById('device-table-body');
+            const countSpan = document.getElementById('count-offline');
+            const lastUpdateSpan = document.getElementById('last-update');
 
-    $('q').oninput = render;
-    $('area').onchange = render;
-    $('sync').onclick = sync;
-    auto(sync);
-  </script>
+            try {
+                // Requisição assíncrona para a rota do FastAPI
+                const response = await fetch('/api/devices/offline');
+                
+                if (!response.ok) {
+                    throw new Error(`Erro HTTP: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                // Atualiza indicador de conexão para verde (Online)
+                indicator.className = "inline-block w-3 h-3 bg-emerald-500 rounded-full animate-pulse";
+                
+                // Atualiza contador
+                countSpan.textContent = data.total_offline ?? data.devices.length;
+                
+                // Limpa a tabela
+                tbody.innerHTML = '';
+
+                if (!data.devices || data.devices.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="3" class="py-8 text-center text-emerald-400 font-medium">
+                                ✨ Tudo em ordem! Nenhum dispositivo offline no momento.
+                            </td>
+                        </tr>`;
+                } else {
+                    data.devices.forEach(device => {
+                        const row = document.createElement('tr');
+                        row.className = 'hover:bg-slate-700/30 transition-colors';
+                        row.innerHTML = `
+                            <td class="py-4 px-4 font-medium text-slate-200">${device.name || 'Desconhecido'}</td>
+                            <td class="py-4 px-4 text-slate-400 font-mono text-xs">${device.entity_id}</td>
+                            <td class="py-4 px-4">
+                                <span class="bg-red-500/10 text-red-400 text-xs px-3 py-1 rounded-full border border-red-500/20 font-medium uppercase tracking-wide">
+                                    ${device.status}
+                                </span>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                }
+
+                // Atualiza o horário do último sync bem sucedido
+                const now = new Date();
+                lastUpdateSpan.textContent = `Última atualização: ${now.toLocaleTimeString()}`;
+
+            } catch (error) {
+                console.error('Falha ao comunicar com a API:', error);
+                // Muda indicador de conexão para vermelho (Erro/Offline)
+                indicator.className = "inline-block w-3 h-3 bg-red-500 rounded-full";
+                
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="3" class="py-8 text-center text-red-400">
+                            ⚠️ Erro ao conectar com a API FastAPI. Verifique se o container está rodando.
+                        </td>
+                    </tr>`;
+            }
+        }
+
+        // Executa ao carregar a página
+        fetchOfflineDevices();
+
+        // Configura polling automático a cada 30 segundos
+        setInterval(fetchOfflineDevices, 30000);
+    </script>
 </body>
 </html>
