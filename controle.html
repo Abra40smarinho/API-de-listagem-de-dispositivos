@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Controle · IoT Monitor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-200 min-h-screen">
+  <div id="nav"></div>
+  <main class="max-w-7xl mx-auto px-4 py-6 grid lg:grid-cols-2 gap-6">
+    <section class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+      <h2 class="font-semibold">Diagnóstico e ações em lote</h2>
+      <div class="flex flex-wrap gap-2">
+        <button id="diag" class="bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-medium rounded-lg px-4 py-2">Executar diagnóstico</button>
+        <button id="reco" class="bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium rounded-lg px-4 py-2">Reconectar offline em lote</button>
+        <button id="tg" class="bg-slate-700 hover:bg-slate-600 text-sm font-medium rounded-lg px-4 py-2">Enviar alerta no Telegram</button>
+      </div>
+      <pre id="log" class="bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs text-emerald-300 h-56 overflow-auto whitespace-pre-wrap">Clique em “Executar diagnóstico”.</pre>
+    </section>
+
+    <section class="space-y-6">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5">
+        <h2 class="font-semibold mb-3">Offline agora <span id="n-off" class="text-red-400"></span></h2>
+        <ul id="now" class="space-y-2 text-sm max-h-56 overflow-auto"></ul>
+      </div>
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5">
+        <h2 class="font-semibold mb-1">Eventos recentes</h2>
+        <p class="text-xs text-slate-500 mb-3">Quedas e recuperações detectadas enquanto o painel esteve aberto neste navegador.</p>
+        <ul id="events" class="space-y-2 text-sm max-h-56 overflow-auto"></ul>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { CONFIG } from './config.js';
+    import { nav, api, loadDevices, getEvents, isOff, esc, toast, auto, fmt } from './ui.js';
+    nav('controle.html');
+    const $ = id => document.getElementById(id);
+    const log = m => { $('log').textContent += `[${new Date().toLocaleTimeString('pt-BR')}] ${m}\n`; $('log').scrollTop = 1e9; };
+    let ds = [];
+
+    function render() {
+      const off = ds.filter(isOff);
+      $('n-off').textContent = `(${off.length})`;
+      $('now').innerHTML = off.length
+        ? off.map(d => `<li class="flex justify-between gap-3 bg-slate-900/60 rounded-lg px-3 py-2"><span>${esc(d.name)} <span class="text-slate-500">· ${esc(d.area)}</span></span><span class="text-red-400 text-xs whitespace-nowrap">${d.status === 'partial' ? 'parcial' : 'offline'}</span></li>`).join('')
+        : '<li class="text-slate-500">Tudo online.</li>';
+      const ev = getEvents().slice(0, 30);
+      $('events').innerHTML = ev.length
+        ? ev.map(e => `<li class="flex justify-between gap-3 bg-slate-900/60 rounded-lg px-3 py-2"><span><span class="${e.kind === 'falha' ? 'text-red-400' : 'text-emerald-400'}">${e.kind === 'falha' ? '▼ Falha' : '▲ Recuperado'}</span> ${esc(e.name)}</span><span class="text-slate-500 text-xs whitespace-nowrap">${fmt(e.t)}</span></li>`).join('')
+        : '<li class="text-slate-500">Nenhum evento registrado ainda.</li>';
+    }
+
+    async function refresh() {
+      try { ds = (await loadDevices()).ds; render(); } catch { /* toast já exibido */ }
+    }
+
+    $('diag').onclick = async () => {
+      $('log').textContent = '';
+      let t = performance.now();
+      try {
+        await api(CONFIG.PATHS.health, { quiet: true });
+        log(`API ${CONFIG.BASE_URL}${CONFIG.PATHS.health} OK (${Math.round(performance.now() - t)} ms)`);
+      } catch (e) { log('API inacessível: ' + e.message); toast('API inacessível: ' + e.message); return; }
+      t = performance.now();
+      try {
+        ds = (await loadDevices()).ds;
+        log(`Home Assistant respondeu: ${ds.length} dispositivos (${Math.round(performance.now() - t)} ms)`);
+        const off = ds.filter(isOff);
+        log(`Indisponíveis: ${off.length}`);
+        off.forEach(d => log(` - ${d.name} [${d.area}] ${d.bad.length} entidade(s) fora`));
+        const ne = ds.filter(d => d.status === 'no_entities').length;
+        if (ne) log(`Sem estado no HA (sem entidades): ${ne}`);
+        render();
+      } catch (e) { log('Falha ao consultar dispositivos: ' + e.message); }
+    };
+
+    $('reco').onclick = async () => {
+      const ids = ds.filter(isOff).map(d => d.id);
+      if (!ids.length) return toast('Nenhum dispositivo offline para reconectar.', 'info');
+      if (!confirm(`Solicitar reconexão de ${ids.length} dispositivo(s)?`)) return;
+      try {
+        await api(CONFIG.PATHS.reconnect, { method: 'POST', body: { device_ids: ids } });
+        toast('Reconexão solicitada.', 'ok');
+        log(`Reconexão solicitada para ${ids.length} dispositivo(s).`);
+      } catch (e) { log('Reconexão falhou: ' + e.message); }
+    };
+
+    $('tg').onclick = async () => {
+      const off = ds.filter(isOff);
+      if (!off.length) return toast('Nada a reportar: nenhum dispositivo offline.', 'info');
+      const message = `⚠️ ${off.length} dispositivo(s) indisponível(is):\n` + off.map(d => `• ${d.name} (${d.area})`).join('\n');
+      try {
+        await api(CONFIG.PATHS.telegram, { method: 'POST', body: { message, devices: off.map(d => ({ id: d.id, name: d.name, area: d.area })) } });
+        toast('Alerta enviado ao Telegram.', 'ok');
+        log('Alerta enviado ao Telegram.');
+      } catch (e) { log('Envio ao Telegram falhou: ' + e.message); }
+    };
+
+    auto(refresh);
+  </script>
+</body>
+</html>
