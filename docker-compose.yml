@@ -1,10 +1,15 @@
+version: '3.8'
+
 services:
   ha-devices-api:
     build: .
     container_name: ha-devices-api
     restart: unless-stopped
     ports:
-      - "8088:8000"
+      - "8000:8000"
     environment:
-      HA_URL: ${HA_URL:?defina HA_URL}
-      HA_TOKEN: ${HA_TOKEN:?defina HA_TOKEN}
+      - HA_URL=${HA_URL}
+      - HA_TOKEN=${HA_TOKEN}
+      - API_KEY=${API_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    
