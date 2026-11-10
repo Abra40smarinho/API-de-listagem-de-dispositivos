@@ -6,7 +6,7 @@ app = FastAPI()
 
 # Pega as origens permitidas do ambiente, ou usa uma lista padrão segura
 # No Portainer, você pode injetar a variável CORS_ORIGINS="http://localhost:8088,http://192.168.1.100:8088"
-cors_origins_env = os.environ.get("CORS_ORIGINS", "http://localhost:8088,http://10.10.10.110:8088")
+cors_origins_env = os.environ.get("CORS_ORIGINS", "http://localhost:8088")
 origins = [origin.strip() for origin in cors_origins_env.split(",")]
 
 app.add_middleware(
