@@ -4,7 +4,7 @@ services:
     container_name: ha-devices-api
     restart: unless-stopped
     ports:
-      - "8010:8000"
+      - "8088:8000"
     environment:
       HA_URL: ${HA_URL:?defina HA_URL}
       HA_TOKEN: ${HA_TOKEN:?defina HA_TOKEN}
