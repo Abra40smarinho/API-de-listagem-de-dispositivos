@@ -2,7 +2,8 @@ import os
 import json
 import secrets
 from typing import Literal
-
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
 import websockets
 from fastapi import FastAPI, HTTPException, Depends, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
