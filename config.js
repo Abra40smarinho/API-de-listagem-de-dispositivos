@@ -1,6 +1,6 @@
 // URL base e chave podem ser trocadas pelo botão ⚙ do menu (ficam no localStorage).
 export const CONFIG = {
-  BASE_URL: localStorage.getItem('baseUrl') || window.API_BASE_URL || 'http://localhost:8010',
+  BASE_URL: localStorage.getItem('baseUrl') || window.API_BASE_URL || window.location.origin,
   API_KEY: localStorage.getItem('apiKey') || '',
   REFRESH_MS: 30000,
   PATHS: {
