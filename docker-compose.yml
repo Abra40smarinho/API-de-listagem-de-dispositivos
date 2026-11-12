@@ -11,5 +11,4 @@ services:
       - HA_URL=${HA_URL}
       - HA_TOKEN=${HA_TOKEN}
       - API_KEY=${API_KEY}
-      - CORS_ORIGINS=${CORS_ORIGINS}
     
