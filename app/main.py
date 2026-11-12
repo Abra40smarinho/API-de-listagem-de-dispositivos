@@ -1,27 +1,17 @@
 import os
-import json
-import secrets
-from typing import Literal
-from pathlib import Path
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-import websockets
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
-from fastapi.middleware.cors import CORSMiddleware
 
-# 1. PRIMEIRO crie a instância do app:
 app = FastAPI()
 
-# 2. DEPOIS configure o middleware:
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:8088", "http://10.10.10.110:8088"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["X-API-Key", "Content-Type"],
-)
+# Definir o caminho absoluto para a pasta static
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "../static") # Ajuste conforme a sua árvore de pastas
 
-# O restante do seu código vem abaixo...
-# Monta a pasta estática para servir a interface web
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Se a pasta estiver dentro de app/static, use:
+# STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/api/devices/offline")
 def get_offline_devices():
