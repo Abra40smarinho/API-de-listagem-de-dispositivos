@@ -1,16 +1,24 @@
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+import os
+import json
+import secrets
+from typing import Literal
+
+import websockets
+from fastapi import FastAPI, HTTPException, Depends, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+# 1. PRIMEIRO crie a instância do app:
 app = FastAPI()
 
+# 2. DEPOIS configure o middleware:
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Ou restrito aos IPs locais desejados
+    allow_origins=["http://localhost:8088", "http://10.10.10.110:8088"],
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=["X-API-Key", "Content-Type"],
 )
 
+# O restante do seu código vem abaixo...
 # Monta a pasta estática para servir a interface web
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
