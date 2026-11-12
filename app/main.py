@@ -4,12 +4,11 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
-# Definir o caminho absoluto para a pasta static
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "../static") # Ajuste conforme a sua árvore de pastas
+# Forma limpa e direta para o caminho absoluto da pasta static dentro do container
+STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static"))
 
-# Se a pasta estiver dentro de app/static, use:
-# STATIC_DIR = os.path.join(BASE_DIR, "static")
+# Se a sua pasta static estiver diretamente na raiz /app/static, use:
+# STATIC_DIR = "/app/static"
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
