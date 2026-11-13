@@ -81,7 +81,7 @@
 
             try {
                 // Requisição assíncrona para a rota do FastAPI
-                const response = await fetch('/api/devices/offline');
+                const response = await fetch('/devices/offline');
                 
                 if (!response.ok) {
                     throw new Error(`Erro HTTP: ${response.status}`);
