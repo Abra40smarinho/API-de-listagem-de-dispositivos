@@ -1,20 +1,24 @@
-import os
 import json
+import os
 import secrets
 from typing import Literal
-from fastapi import FastAPI, Header, Query, Depends, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import websockets
 
-# Instanciação única do FastAPI
+import websockets
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
+
+HA_URL = os.environ["HA_URL"]
+HA_TOKEN = os.environ["HA_TOKEN"]
+API_KEY = os.environ.get("API_KEY")
+
+UNAVAILABLE_STATES = {"unavailable", "unknown"}
+
 app = FastAPI(title="HA Devices API")
 
-# --- Configuração de Arquivos Estáticos e Páginas Web ---
 STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static"))
+app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
-# Se a sua pasta static estiver diretamente na raiz /app/static dentro do container, descomente a linha abaixo:
-# STATIC_DIR = "/app/static"
+# ... restante das suas funções (check_key, ha_commands, rotas, etc.) ...
 
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
