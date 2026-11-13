@@ -3,49 +3,81 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Localidades · IoT Monitor</title>
+  <title>Localidades · Monitor Home Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>body { background: radial-gradient(1200px 500px at 50% -10%, #1e1b4b55, transparent), #0f172a; }</style>
 </head>
-<body class="bg-slate-900 text-slate-200 min-h-screen">
+<body class="text-slate-200 min-h-screen">
   <div id="nav"></div>
-  <main class="max-w-7xl mx-auto px-4 py-6 space-y-4">
-    <p class="text-sm text-slate-400">Saúde da rede por cômodo: dispositivos online em relação aos que o Home Assistant consegue medir. <span id="at" class="text-slate-500"></span></p>
-    <div id="grid" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+  <main class="max-w-[1400px] mx-auto px-4 py-4 space-y-3">
+    <div class="flex flex-wrap items-center gap-3 text-sm">
+      <label class="text-slate-400">Agrupar por
+        <select id="by" class="ml-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-indigo-500">
+          <option value="area">Cômodo</option>
+          <option value="integ">Integração</option>
+          <option value="manufacturer">Fabricante</option>
+        </select>
+      </label>
+      <span id="hint" class="text-xs text-slate-500"></span>
+      <span id="at" class="ml-auto text-xs text-slate-500"></span>
+    </div>
+    <div id="grid" class="grid sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"></div>
   </main>
 
   <script type="module">
-    import { nav, loadDevices, esc, auto } from './ui.js';
-    nav('localidades.html');
+    import { nav, loadDevices, visible, isOff, esc, auto, pref, setPref } from '/static/ui.js';
+    nav('localidades');
     const $ = id => document.getElementById(id);
+    let ds = [];
     const chip = {
       ok: 'border-emerald-500/30 text-emerald-300 bg-emerald-500/10',
-      unavailable: 'border-red-500/30 text-red-300 bg-red-500/10',
-      partial: 'border-amber-500/30 text-amber-300 bg-amber-500/10',
+      unavailable: 'border-red-500/40 text-red-300 bg-red-500/10',
+      partial: 'border-amber-500/40 text-amber-300 bg-amber-500/10',
       no_entities: 'border-slate-600 text-slate-400 bg-slate-700/30',
     };
+    const rank = { unavailable: 0, partial: 1, no_entities: 2, ok: 3 };
 
-    function render(ds) {
+    function render() {
+      const base = visible(ds);
+      // Se nenhum dispositivo tem cômodo no HA, agrupar por cômodo não ajuda: sugere integração
+      const noAreas = base.length > 0 && base.every(d => d.area === 'Sem cômodo');
+      let by = pref('groupBy', null) || (noAreas ? 'integ' : 'area');
+      $('by').value = by;
+      $('hint').textContent = noAreas && by === 'area' ? 'Nenhum dispositivo tem cômodo no Home Assistant. Atribua áreas por lá para este agrupamento fazer sentido.' : '';
+
+      const key = d => by === 'manufacturer' ? (d.manufacturer || '—') : d[by];
       const g = {};
-      ds.forEach(d => (g[d.area] ??= []).push(d));
-      $('grid').innerHTML = Object.entries(g).sort((a, b) => a[0].localeCompare(b[0])).map(([area, list]) => {
+      base.forEach(d => (g[key(d)] ??= []).push(d));
+
+      const stats = list => {
         const known = list.filter(d => d.status !== 'no_entities');
         const ok = known.filter(d => d.status === 'ok').length;
-        const pct = known.length ? Math.round(ok / known.length * 100) : null;
-        const bar = pct === null ? 'bg-slate-600' : pct >= 90 ? 'bg-emerald-500' : pct >= 60 ? 'bg-amber-500' : 'bg-red-500';
-        return `<article class="bg-slate-800 border border-slate-700 rounded-xl p-5">
-          <div class="flex justify-between items-baseline gap-2"><h2 class="font-semibold">${esc(area)}</h2><span class="text-sm text-slate-400">${pct === null ? 'sem dados' : pct + '% online'}</span></div>
-          <div class="h-2 bg-slate-700 rounded mt-3 overflow-hidden"><div class="h-full ${bar}" style="width:${pct ?? 0}%"></div></div>
-          <p class="text-xs text-slate-500 mt-2">${ok} online · ${known.length - ok} offline/parcial · ${list.length - known.length} sem estado</p>
-          <div class="flex flex-wrap gap-1.5 mt-3">${list.map(d => `<span class="px-2 py-0.5 rounded text-xs border ${chip[d.status] || chip.no_entities}">${esc(d.name)}</span>`).join('')}</div>
-        </article>`;
-      }).join('') || '<p class="text-slate-500">Nenhum dispositivo encontrado.</p>';
+        return { known: known.length, ok, pct: known.length ? Math.round(ok / known.length * 100) : null };
+      };
+
+      $('grid').innerHTML = Object.entries(g)
+        .map(([name, list]) => [name, list, stats(list)])
+        .sort((a, b) => (a[2].pct ?? 101) - (b[2].pct ?? 101) || a[0].localeCompare(b[0]))
+        .map(([name, list, s]) => {
+          const bar = s.pct === null ? 'bg-slate-600' : s.pct >= 90 ? 'bg-emerald-500' : s.pct >= 60 ? 'bg-amber-500' : 'bg-red-500';
+          const sorted = [...list].sort((a, b) => rank[a.status] - rank[b.status] || a.name.localeCompare(b.name));
+          return `<article class="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
+            <div class="flex justify-between items-baseline gap-2"><h2 class="font-semibold truncate">${esc(name)}</h2><span class="text-xs text-slate-400 whitespace-nowrap">${s.pct === null ? 'sem dados' : s.pct + '% online'}</span></div>
+            <div class="h-1.5 bg-slate-700 rounded mt-2 overflow-hidden"><div class="h-full ${bar}" style="width:${s.pct ?? 0}%"></div></div>
+            <p class="text-[11px] text-slate-500 mt-1.5">${s.ok} online · ${s.known - s.ok} offline/parcial · ${list.length - s.known} sem estado</p>
+            <div class="flex flex-wrap gap-1 mt-2 max-h-28 overflow-auto">${sorted.map(d => `<span title="${esc(d.model || '')}" class="px-1.5 py-0.5 rounded text-[11px] border ${chip[d.status]}">${esc(d.name)}</span>`).join('')}</div>
+          </article>`;
+        }).join('') || '<p class="text-slate-500">Nenhum dispositivo encontrado.</p>';
     }
 
+    $('by').onchange = () => { setPref('groupBy', $('by').value); render(); };
+    window.addEventListener('prefs', render);
     auto(async () => {
       try {
         const r = await loadDevices();
-        render(r.ds);
-        $('at').textContent = '· atualizado às ' + r.at.toLocaleTimeString('pt-BR');
+        ds = r.ds;
+        render();
+        $('at').textContent = 'atualizado às ' + r.at.toLocaleTimeString('pt-BR');
       } catch { /* toast já exibido */ }
     });
   </script>
