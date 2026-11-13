@@ -1,150 +1,144 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
+<!doctype html>
+<html lang="pt-BR" class="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitor IoT - Dispositivos Indisponíveis</title>
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Monitor Home Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: radial-gradient(1200px 500px at 50% -10%, #1e1b4b55, transparent), #0f172a; }
+    thead th { position: sticky; top: 0; z-index: 1; }
+    .scroll::-webkit-scrollbar { width: 8px; height: 8px }
+    .scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 8px }
+  </style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen p-6 md:p-8">
-    <div class="max-w-5xl mx-auto">
-        
-        <!-- Cabeçalho do Painel -->
-        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-slate-800 pb-6">
-            <div>
-                <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
-                    <span class="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-pulse" id="connection-indicator"></span>
-                    Monitor Home Assistant
-                </h1>
-                <p class="text-slate-400 text-sm mt-1">Gerenciamento em tempo real de entidades indisponíveis</p>
-            </div>
-            
-            <div class="flex items-center gap-4">
-                <!-- Contador de Offline -->
-                <div class="bg-red-500/10 text-red-400 px-4 py-2 rounded-xl font-semibold border border-red-500/20 flex items-center gap-2 shadow-inner">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd" />
-                    </svg>
-                    <span>Offline: <strong id="count-offline" class="text-lg">0</strong></span>
-                </div>
+<body class="text-slate-200 min-h-screen">
+  <div id="nav"></div>
+  <main class="max-w-[1400px] mx-auto px-4 py-4 space-y-4">
+    <section id="metrics" class="grid grid-cols-2 md:grid-cols-5 gap-3"></section>
 
-                <!-- Botão de Sincronização Manual -->
-                <button onclick="fetchOfflineDevices()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-medium transition shadow-lg shadow-indigo-600/20 flex items-center gap-2 cursor-pointer">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Atualizar
-                </button>
-            </div>
-        </header>
+    <section class="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
+      <div class="p-3 flex flex-wrap gap-2 items-center border-b border-slate-700">
+        <input id="q" type="search" placeholder="Buscar nome, modelo ou entidade…" class="flex-1 min-w-[12rem] bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+        <div id="seg" class="flex rounded-lg overflow-hidden border border-slate-700 text-xs"></div>
+        <select id="integ" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"></select>
+        <select id="area" class="hidden bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"></select>
+        <button id="sync" class="bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-3 py-1.5">↻ Sincronizar agora</button>
+      </div>
+      <div class="scroll overflow-auto max-h-[calc(100vh-16rem)] min-h-[12rem]">
+        <table class="w-full text-xs">
+          <thead class="text-[11px] uppercase tracking-wide text-slate-400">
+            <tr class="bg-slate-900">
+              <th class="px-3 py-2 text-left">Status</th>
+              <th class="px-3 py-2 text-left">Dispositivo</th>
+              <th class="px-3 py-2 text-left">Integração</th>
+              <th class="px-3 py-2 text-left">Entidade (fora/total)</th>
+              <th class="px-3 py-2 text-left hidden lg:table-cell">Tipo</th>
+              <th class="px-3 py-2 text-left hidden md:table-cell">Cômodo</th>
+              <th class="px-3 py-2 text-left hidden sm:table-cell" title="Desde a primeira vez que o painel viu o dispositivo offline">Offline há</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="foot" class="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-700"></div>
+    </section>
+  </main>
 
-        <!-- Card Principal da Tabela -->
-        <main class="bg-slate-800/80 backdrop-blur-md rounded-2xl p-6 shadow-2xl border border-slate-700/60">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-lg font-semibold text-slate-200">Dispositivos Fora do Ar / Indisponíveis</h2>
-                <span id="last-update" class="text-xs text-slate-400">Última atualização: --:--:--</span>
-            </div>
+  <script type="module">
+    import { nav, loadDevices, isOff, visible, STATUS, esc, auto, ago, pref } from '/static/ui.js';
+    nav('painel');
+    const $ = id => document.getElementById(id);
+    const MODES = [
+      ['off', 'Indisponíveis', isOff],
+      ['ok', 'Online', d => d.status === 'ok'],
+      ['none', 'Sem estado', d => d.status === 'no_entities'],
+      ['all', 'Todos', () => true],
+    ];
+    const rank = { unavailable: 0, partial: 1, no_entities: 2, ok: 3 };
+    let ds = [], at = null, mode = 'off';
+    const open = new Set();
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="border-b border-slate-700 text-slate-400 text-sm uppercase tracking-wider">
-                            <th class="py-3 px-4 font-semibold">Dispositivo</th>
-                            <th class="py-3 px-4 font-semibold">Entidade (Entity ID)</th>
-                            <th class="py-3 px-4 font-semibold">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="device-table-body" class="divide-y divide-slate-700/40">
-                        <tr>
-                            <td colspan="3" class="py-8 text-center text-slate-400">
-                                Carregando dados da API...
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </main>
-        
-        <footer class="text-center mt-6 text-xs text-slate-500">
-            ha-devices-api &bull; Integrado ao ambiente Docker / Portainer
-        </footer>
-    </div>
+    function select(el, label, counts, keep) {
+      el.innerHTML = `<option value="">${label}</option>` + Object.entries(counts).sort().map(([k, c]) =>
+        `<option value="${esc(k)}" ${k === keep ? 'selected' : ''}>${esc(k)} (${c})</option>`).join('');
+    }
 
-    <!-- Script de Integração com a API -->
-    <script>
-        async function fetchOfflineDevices() {
-            const indicator = document.getElementById('connection-indicator');
-            const tbody = document.getElementById('device-table-body');
-            const countSpan = document.getElementById('count-offline');
-            const lastUpdateSpan = document.getElementById('last-update');
+    function render() {
+      const base = visible(ds);
+      const n = f => base.filter(f).length;
+      const hidden = ds.length - base.length;
 
-            try {
-                // Requisição assíncrona para a rota do FastAPI
-                const response = await fetch('/devices/offline');
-                
-                if (!response.ok) {
-                    throw new Error(`Erro HTTP: ${response.status}`);
-                }
+      $('metrics').innerHTML = [
+        ['Total de dispositivos', base.length, 'text-cyan-300', hidden ? `${hidden} demo oculto(s)` : ''],
+        ['Online', n(d => d.status === 'ok'), 'text-emerald-400', ''],
+        ['Indisponíveis', n(isOff), 'text-red-400', `${n(d => d.status === 'unavailable')} offline · ${n(d => d.status === 'partial')} parcial`],
+        ['Sem estado', n(d => d.status === 'no_entities'), 'text-slate-300', 'sem entidades no HA'],
+        ['Última sincronização', at ? at.toLocaleTimeString('pt-BR') : '–', 'text-indigo-300', 'automática a cada 30 s'],
+      ].map(([l, v, c, s]) => `
+        <div class="bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-2.5">
+          <p class="text-[11px] uppercase tracking-wide text-slate-400">${l}</p>
+          <p class="text-2xl font-semibold leading-tight ${c}">${v}</p>
+          <p class="text-[11px] text-slate-500 h-4">${s}</p>
+        </div>`).join('');
 
-                const data = await response.json();
+      const pass = MODES.find(m => m[0] === mode)[2];
+      $('seg').innerHTML = MODES.map(([k, l, f]) =>
+        `<button data-m="${k}" class="px-3 py-1.5 ${k === mode ? 'bg-indigo-500 text-white' : 'bg-slate-900 text-slate-300 hover:bg-slate-700'}">${l} <span class="opacity-70">${n(f)}</span></button>`).join('');
 
-                // Atualiza indicador de conexão para verde (Online)
-                indicator.className = "inline-block w-3 h-3 bg-emerald-500 rounded-full animate-pulse";
-                
-                // Atualiza contador
-                countSpan.textContent = data.total_offline ?? data.devices.length;
-                
-                // Limpa a tabela
-                tbody.innerHTML = '';
+      const byMode = base.filter(pass);
+      const count = key => byMode.reduce((a, d) => (a[d[key]] = (a[d[key]] || 0) + 1, a), {});
+      select($('integ'), 'Todas as integrações', count('integ'), $('integ').value);
+      const areas = count('area');
+      select($('area'), 'Todos os cômodos', areas, $('area').value);
+      $('area').classList.toggle('hidden', Object.keys(areas).length < 2);
 
-                if (!data.devices || data.devices.length === 0) {
-                    tbody.innerHTML = `
-                        <tr>
-                            <td colspan="3" class="py-8 text-center text-emerald-400 font-medium">
-                                ✨ Tudo em ordem! Nenhum dispositivo offline no momento.
-                            </td>
-                        </tr>`;
-                } else {
-                    data.devices.forEach(device => {
-                        const row = document.createElement('tr');
-                        row.className = 'hover:bg-slate-700/30 transition-colors';
-                        row.innerHTML = `
-                            <td class="py-4 px-4 font-medium text-slate-200">${device.name || 'Desconhecido'}</td>
-                            <td class="py-4 px-4 text-slate-400 font-mono text-xs">${device.entity_id}</td>
-                            <td class="py-4 px-4">
-                                <span class="bg-red-500/10 text-red-400 text-xs px-3 py-1 rounded-full border border-red-500/20 font-medium uppercase tracking-wide">
-                                    ${device.status}
-                                </span>
-                            </td>
-                        `;
-                        tbody.appendChild(row);
-                    });
-                }
+      const q = $('q').value.trim().toLowerCase(), ig = $('integ').value, ar = $('area').value;
+      const rows = byMode
+        .filter(d => (!ig || d.integ === ig) && (!ar || d.area === ar) &&
+          (!q || `${d.name} ${d.model || ''} ${d.entities.join(' ')}`.toLowerCase().includes(q)))
+        .sort((a, b) => rank[a.status] - rank[b.status] || a.integ.localeCompare(b.integ) || a.name.localeCompare(b.name));
 
-                // Atualiza o horário do último sync bem sucedido
-                const now = new Date();
-                lastUpdateSpan.textContent = `Última atualização: ${now.toLocaleTimeString()}`;
+      $('rows').innerHTML = rows.length ? rows.map(d => {
+        const [label, txt, dot] = STATUS[d.status];
+        const nb = d.bad.length, ne = d.entities.length;
+        const detail = open.has(d.id) ? `<tr class="bg-slate-900/50"><td colspan="7" class="px-3 py-2">
+            <div class="flex flex-wrap gap-1">${d.entities.length ? d.entities.map(e =>
+              `<span class="px-1.5 py-0.5 rounded font-mono text-[11px] ${d.bad.includes(e) ? 'bg-red-500/15 text-red-300' : 'bg-slate-700/60 text-slate-400'}">${esc(e)}</span>`).join('') : '<span class="text-slate-500">Sem entidades no Home Assistant</span>'}</div>
+            <p class="mt-1 text-[11px] text-slate-500">${esc(d.manufacturer || '—')} · ${esc(d.model || '—')} · ID ${esc(d.id)}</p></td></tr>` : '';
+        return `<tr data-id="${esc(d.id)}" class="border-t border-slate-700/50 hover:bg-slate-700/30 cursor-pointer">
+          <td class="px-3 py-1.5 whitespace-nowrap"><span class="inline-flex items-center gap-1.5 ${txt}"><span class="w-1.5 h-1.5 rounded-full ${dot} ${d.status === 'unavailable' ? 'animate-pulse' : ''}"></span>${label}</span></td>
+          <td class="px-3 py-1.5"><span class="font-medium text-slate-100">${esc(d.name)}</span> <span class="hidden xl:inline text-slate-500">${esc(d.model || '')}</span></td>
+          <td class="px-3 py-1.5"><span class="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300">${esc(d.integ)}</span></td>
+          <td class="px-3 py-1.5 font-mono text-cyan-300 max-w-[20rem] truncate">${nb ? esc(d.bad[0]) : '—'}${nb > 1 ? ` <span class="text-slate-500">+${nb - 1}</span>` : ''}${ne ? ` <span class="text-slate-500">(${nb}/${ne})</span>` : ''}</td>
+          <td class="px-3 py-1.5 hidden lg:table-cell">${d.types.slice(0, 4).map(t => `<span class="mr-1 px-1 rounded bg-slate-700 text-slate-300">${esc(t)}</span>`).join('')}</td>
+          <td class="px-3 py-1.5 hidden md:table-cell text-slate-400">${esc(d.area)}</td>
+          <td class="px-3 py-1.5 hidden sm:table-cell text-slate-400 whitespace-nowrap">${d.since ? ago(d.since) : '—'}</td>
+        </tr>${detail}`;
+      }).join('') : '<tr><td colspan="7" class="px-3 py-10 text-center text-slate-500">Nenhum dispositivo neste filtro</td></tr>';
 
-            } catch (error) {
-                console.error('Falha ao comunicar com a API:', error);
-                // Muda indicador de conexão para vermelho (Erro/Offline)
-                indicator.className = "inline-block w-3 h-3 bg-red-500 rounded-full";
-                
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="3" class="py-8 text-center text-red-400">
-                            ⚠️ Erro ao conectar com a API FastAPI. Verifique se o container está rodando.
-                        </td>
-                    </tr>`;
-            }
-        }
+      $('foot').textContent = `Mostrando ${rows.length} de ${byMode.length} · clique numa linha para ver as entidades`;
+    }
 
-        // Executa ao carregar a página
-        fetchOfflineDevices();
+    async function sync() {
+      $('sync').disabled = true;
+      try { const r = await loadDevices(); ds = r.ds; at = r.at; render(); } catch { /* toast já exibido */ }
+      $('sync').disabled = false;
+    }
 
-        // Configura polling automático a cada 30 segundos
-        setInterval(fetchOfflineDevices, 30000);
-    </script>
+    $('q').oninput = render;
+    $('integ').onchange = render;
+    $('area').onchange = render;
+    $('sync').onclick = sync;
+    $('seg').onclick = e => { const b = e.target.closest('button'); if (b) { mode = b.dataset.m; render(); } };
+    $('rows').onclick = e => {
+      const tr = e.target.closest('tr[data-id]');
+      if (!tr) return;
+      open.has(tr.dataset.id) ? open.delete(tr.dataset.id) : open.add(tr.dataset.id);
+      render();
+    };
+    window.addEventListener('prefs', render);
+    auto(sync);
+  </script>
 </body>
 </html>
