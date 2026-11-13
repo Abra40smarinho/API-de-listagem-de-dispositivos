@@ -1,17 +1,20 @@
+import json
 import os
-from fastapi import FastAPI
+import secrets
+from typing import Literal
+
+import websockets
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
-# GARANTA A IMPORTAÇÃO DO FILERESPONSE AQUI:
-from fastapi.responses import FileResponse 
+from fastapi.responses import FileResponse
 
 app = FastAPI(title="HA Devices API")
 
-# Força o caminho absoluto correto dentro do container Docker
+# Define o caminho absoluto correto dentro do ambiente Linux do container
 STATIC_DIR = "/app/static"
 
-# Removemos o "if os.path.exists" para que, se a pasta sumir por erro de build, 
-# o Docker acuse o erro imediatamente nos logs em vez de ignorar silenciosamente
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Monta o diretório e desativa a checagem rígida na inicialização
+app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
 @app.get("/")
 def serve_root():
