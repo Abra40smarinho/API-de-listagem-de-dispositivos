@@ -4,7 +4,9 @@ services:
     container_name: ha-devices-api
     restart: unless-stopped
     ports:
-      - "8088:8000"  # <- Mudei de "8000:8000" para "8088:8000"
+      - "8088:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      - HA_URL=${HA_URL}
-      - HA_TOKEN=${HA_TOKEN}
+      HA_URL: ${HA_URL:-ws://host.docker.internal:8123/api/websocket}
+      HA_TOKEN: ${HA_TOKEN}
