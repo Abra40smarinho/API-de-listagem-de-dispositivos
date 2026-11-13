@@ -1,44 +1,49 @@
 import os
-from fastapi import FastAPI
+import json
+import secrets
+from typing import Literal
+from fastapi import FastAPI, Header, Query, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import websockets
 
-app = FastAPI()
+# Instanciação única do FastAPI
+app = FastAPI(title="HA Devices API")
 
-# Forma limpa e direta para o caminho absoluto da pasta static dentro do container
+# --- Configuração de Arquivos Estáticos e Páginas Web ---
 STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static"))
 
-# Se a sua pasta static estiver diretamente na raiz /app/static, use:
+# Se a sua pasta static estiver diretamente na raiz /app/static dentro do container, descomente a linha abaixo:
 # STATIC_DIR = "/app/static"
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-@app.get("/api/devices/offline")
-def get_offline_devices():
-    # Aqui entra a sua lógica que consulta o Home Assistant e filtra os indisponíveis
-    return {
-        "total_offline": 2,
-        "devices": [
-            {"entity_id": "light.sala", "name": "Luz da Sala", "status": "unavailable"},
-            {"entity_id": "switch.cozinha", "name": "Tomada Cozinha", "status": "unavailable"}
-        ]
-    }
-HA_URL = os.environ["HA_URL"]
-HA_TOKEN = os.environ["HA_TOKEN"]
-API_KEY = os.environ.get("API_KEY")  # se vazio, a API fica aberta
+@app.get("/")
+def serve_root():
+    """Serve a página principal do painel"""
+    painel_path = os.path.join(STATIC_DIR, "painel.html")
+    if os.path.exists(painel_path):
+        return FileResponse(painel_path)
+    return {"message": "API rodando com sucesso. Coloque o painel.html na pasta static."}
 
-# Estados que o HA usa quando não consegue falar com o dispositivo
+
+# --- Configurações do Home Assistant ---
+HA_URL = os.environ.get("HA_URL", "ws://homeassistant.local:8123/api/websocket")
+HA_TOKEN = os.environ.get("HA_TOKEN", "")
+API_KEY = os.environ.get("API_KEY")  # Se vazio, a API fica aberta
+
 UNAVAILABLE_STATES = {"unavailable", "unknown"}
-
-app = FastAPI(title="HA Devices API")
 
 
 def check_key(x_api_key: str | None = Header(default=None)):
+    """Valida a chave de API caso esteja configurada nas variáveis de ambiente"""
     if API_KEY and not secrets.compare_digest(x_api_key or "", API_KEY):
-        raise HTTPException(401, "API key inválida")
+        raise HTTPException(status_code=401, detail="API key inválida")
 
 
 async def ha_commands(commands: list[dict]) -> list:
-    """Abre conexão, autentica, executa os comandos em ordem e devolve os resultados."""
+    """Abre conexão WebSocket, autentica e executa os comandos no Home Assistant."""
     async with websockets.connect(HA_URL, max_size=None, open_timeout=10) as ws:
         msg = json.loads(await ws.recv())
         if msg["type"] != "auth_required":
@@ -47,7 +52,7 @@ async def ha_commands(commands: list[dict]) -> list:
         await ws.send(json.dumps({"type": "auth", "access_token": HA_TOKEN}))
         msg = json.loads(await ws.recv())
         if msg["type"] != "auth_ok":
-            raise PermissionError("Token inválido")
+            raise PermissionError("Token inválido no Home Assistant")
 
         results = []
         for i, cmd in enumerate(commands, start=1):
@@ -65,7 +70,7 @@ async def ha_commands(commands: list[dict]) -> list:
 @app.get("/devices", dependencies=[Depends(check_key)])
 async def list_devices(
     manufacturer: str | None = Query(None, description="ex: Tuya"),
-    integration: str | None = Query(None, description="ex: tuya, localtuya, alexa_devices"),
+    integration: str | None = Query(None, description="ex: tuya, localtuya"),
     area: str | None = None,
     include_disabled: bool = False,
     include_states: bool = Query(False, description="Inclui o estado atual de cada entidade"),
@@ -75,10 +80,7 @@ async def list_devices(
     ),
     unavailable_match: Literal["all", "any"] = Query(
         "all",
-        description=(
-            "all: todas as entidades do dispositivo estão unavailable/unknown (offline). "
-            "any: pelo menos uma está."
-        ),
+        description="all: todas as entidades offline. any: pelo menos uma.",
     ),
 ):
     need_states = include_states or only_unavailable
@@ -95,9 +97,9 @@ async def list_devices(
     try:
         res = await ha_commands(cmds)
     except PermissionError as e:
-        raise HTTPException(401, str(e))
+        raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
-        raise HTTPException(502, f"Erro ao falar com o HA: {e}")
+        raise HTTPException(status_code=502, detail=f"Erro ao falar com o HA: {e}")
 
     devices, entities, areas, entries = res[0], res[1], res[2], res[3]
     states = {s["entity_id"]: s["state"] for s in res[4]} if need_states else {}
@@ -114,12 +116,10 @@ async def list_devices(
     for d in devices:
         if d.get("disabled_by") and not include_disabled:
             continue
-        if d.get("entry_type") == "service":  # Sun, Backup etc.
+        if d.get("entry_type") == "service":
             continue
 
         ents = ents_by_device.get(d["id"], [])
-
-        # Integração descoberta pelo config_entry: funciona mesmo sem entidades
         platforms = sorted({
             entry_domain[c] for c in d.get("config_entries", []) if c in entry_domain
         })
@@ -143,7 +143,6 @@ async def list_devices(
         }
 
         if need_states:
-            # Só conta entidades habilitadas e que realmente têm estado no HA
             live = [
                 e["entity_id"] for e in ents
                 if not e.get("disabled_by") and e["entity_id"] in states
@@ -151,7 +150,7 @@ async def list_devices(
             bad = [eid for eid in live if states[eid] in UNAVAILABLE_STATES]
 
             if not live:
-                status = "no_entities"   # ex.: Tuya (unsupported): o HA não tem estado
+                status = "no_entities"
             elif len(bad) == len(live):
                 status = "unavailable"
             elif bad:
@@ -172,6 +171,8 @@ async def list_devices(
         out.append(item)
 
     return out
+
+
 @app.get("/devices/offline", dependencies=[Depends(check_key)])
 async def offline_summary(
     manufacturer: str | None = None,
@@ -195,7 +196,7 @@ async def offline_summary(
                 "name": d["name"],
                 "model": d["model"],
                 "integrations": d["integrations"],
-                "unavailable_entities": len(d["unavailable_entities"]),
+                "unavailable_entities": len(d.get("unavailable_entities", [])),
             }
             for d in devices
         ],
