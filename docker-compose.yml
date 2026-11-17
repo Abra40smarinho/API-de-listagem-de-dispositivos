@@ -5,9 +5,11 @@ services:
     restart: unless-stopped
     ports:
       - "8088:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      - HA_URL=${HA_URL}
       - HA_TOKEN=${HA_TOKEN}
+      - HA_URL=${HA_URL:-ws://host.docker.internal:8123/api/websocket}
       - API_KEY=${API_KEY}
 
   ha-devices-notifier:
@@ -22,4 +24,4 @@ services:
       - API_KEY=${API_KEY}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-      - INTERVALO_SEGUNDOS=3600  # Roda a cada 1 hora (ajuste se preferir)
+      - INTERVALO_SEGUNDOS=3600
