@@ -198,6 +198,42 @@ async def offline_summary(
             for d in devices
         ],
     }
+import requests
+
+# Rota para forçar o envio da notificação via Telegram sob demanda pelo painel
+@app.post("/api/notify", dependencies=[Depends(check_key)])
+async def trigger_telegram_notification(client_name: str = Query("Central de Operações", description="Nome do cliente")):
+    telegram_token = os.environ.get("TELEGRAM_TOKEN")
+    telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    
+    if not telegram_token or not telegram_chat_id:
+        raise HTTPException(status_code=400, detail="Credenciais do Telegram não configuradas no container.")
+
+    # Busca os dispositivos offline usando a própria lógica da API
+    offline_data = await offline_summary(unavailable_match="all")
+    count = offline_data.get("count", 0)
+    
+    mensagem = f"🚨 *Relatório Manual - {client_name}* 🚨\n\n"
+    if count == 0:
+        mensagem += "✅ Nenhum dispositivo offline no momento."
+    else:
+        mensagem += f"Foram encontrados *{count}* dispositivos indisponíveis:\n\n"
+        for dev in offline_data.get("devices", []):
+            mensagem += f"• *{dev['name']}* (`{dev['model']}`)\n"
+            
+    url_telegram = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+    payload = {
+        "chat_id": telegram_chat_id,
+        "text": mensagem,
+        "parse_mode": "Markdown"
+    }
+    
+    try:
+        response = requests.post(url_telegram, json=payload, timeout=10)
+        response.raise_for_status()
+        return {"status": "success", "message": f"Alerta enviado para o Telegram referente ao cliente: {client_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao enviar para o Telegram: {e}")
 
 
 @app.get("/health")
