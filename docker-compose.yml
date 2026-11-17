@@ -20,10 +20,12 @@ services:
     restart: unless-stopped
     depends_on:
       - ha-devices-api
+    volumes:
+      - ./dados_banco:/app/data   # <--- Garante persistência dos dados no host
     command: ["python", "app/notifier.py"]
     environment:
       - API_URL=http://ha-devices-api:8000/devices/offline
       - API_KEY=${API_KEY}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-      - INTERVALO_SEGUNDOS=3600
+      - DB_PATH=/app/data/tuya_historico.db
