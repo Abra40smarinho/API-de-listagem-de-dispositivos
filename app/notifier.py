@@ -1,67 +1,128 @@
 import os
 import time
+import sqlite3
+from datetime import datetime, timezone
 import requests
+import schedule
 
+# Configurações de Ambiente
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 API_URL = os.environ.get("API_URL", "http://ha-devices-api:8000/devices/offline")
 API_KEY = os.environ.get("API_KEY", "")
-INTERVALO_SEGUNDOS = int(os.environ.get("INTERVALO_SEGUNDOS", 3600))
 
-def enviar_alerta_telegram():
+# Caminho do Banco SQLite (mapeado para volume persistente no Docker)
+DB_PATH = os.environ.get("DB_PATH", "/app/data/tuya_historico.db")
+
+def inicializar_banco():
+    """Garante que a tabela de histórico offline existe no SQLite."""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS historico_offline (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            entity_id TEXT,
+            name TEXT,
+            status TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def varredura_horaria():
+    """Executado a cada 1 hora: coleta o status atual e salva no SQLite."""
+    agora = datetime.now(timezone.utc).isoformat()
+    print(f"[{agora}] Iniciando varredura horária de dispositivos...")
+    
     headers = {"x-api-key": API_KEY} if API_KEY else {}
-    params = {"integration": "tuya"}
-    
-    # Tenta se conectar à API com retries caso ela esteja subindo
-    max_tentativas = 5
-    for tentativa in range(1, max_tentativas + 1):
-        try:
-            response = requests.get(API_URL, headers=headers, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            break
-        except requests.exceptions.ConnectionError:
-            if tentativa < max_tentativas:
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] API indisponível, tentando novamente em 5s (Tentativa {tentativa}/{max_tentativas})...")
-                time.sleep(5)
-            else:
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Erro: Não foi possível conectar à API após {max_tentativas} tentativas.")
-                return
-        except Exception as e:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Erro na verificação: {e}")
-            return
-
-    count = data.get("count", 0)
-    if count == 0:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Nenhum dispositivo offline.")
-        return
-
-    mensagem = f"🚨 *Alerta: Dispositivos Offline* 🚨\n\n"
-    mensagem += f"Foram encontrados *{count}* dispositivos indisponíveis:\n\n"
-    
-    for dev in data.get("devices", []):
-        mensagem += f"• *{dev['name']}* (`{dev['model']}`)\n"
-        
-    url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mensagem,
-        "parse_mode": "Markdown"
-    }
     
     try:
-        res_tg = requests.post(url_telegram, json=payload, timeout=10)
-        res_tg.raise_for_status()
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Alerta enviado ao Telegram com sucesso!")
+        response = requests.get(API_URL, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        devices = data.get("devices", [])
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Salva cada dispositivo que estiver offline/unavailable na varredura atual
+        for dev in devices:
+            entity_id = dev.get("id")
+            name = dev.get("name")
+            status = dev.get("status")
+            
+            cursor.execute('''
+                INSERT INTO historico_offline (timestamp, entity_id, name, status)
+                VALUES (?, ?, ?, ?)
+            ''', (agora, entity_id, name, status))
+            
+        conn.commit()
+        conn.close()
+        print(f"Varredura concluída. {len(devices)} registros offline salvos.")
+        
     except Exception as e:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Erro ao enviar para o Telegram: {e}")
+        print(f"Erro na varredura horária: {e}")
+
+def enviar_relatorio_matinal_8am():
+    """Executado todo dia às 08:00: calcula as últimas 24h e envia o resumo para o Telegram."""
+    print("Gerando relatório matinal das 08:00...")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Consulta registros das últimas 24 horas
+    # Como rodamos de 1 em 1 hora, cada registro offline equivale a ~1 hora de indisponibilidade
+    cursor.execute('''
+        name, entity_id, COUNT(*) as total_horas
+        FROM historico_offline
+        WHERE datetime(timestamp) >= datetime('now', '-24 hours')
+        GROUP BY entity_id
+        ORDER BY total_horas DESC
+    ''')
+    
+    resultados = cursor.fetchall()
+    conn.close()
+    
+    # Monta a mensagem para o Telegram
+    mensagem = f"☀️ *Relatório Matinal - Central de Operações* (08:00)\n\n"
+    
+    if not resultados:
+        mensagem += "✅ Nenhum registro de instabilidade nas últimas 24 horas! Todos 100% online."
+    else:
+        mensagem += "⚠️ *Dispositivos com tempo offline nas últimas 24h:*\n\n"
+        for name, entity_id, horas in resultados:
+            mensagem += f"• *{name}*: Aproximadamente *{horas}h* offline (`{entity_id}`)\n"
+            
+    # Envia o relatório via API do Telegram
+    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": mensagem,
+            "parse_mode": "Markdown"
+        }
+        try:
+            requests.post(url_telegram, json=payload, timeout=10)
+            print("Relatório matinal enviado com sucesso para o Telegram.")
+        except Exception as e:
+            print(f"Erro ao enviar mensagem para o Telegram: {e}")
+    else:
+        print("Credenciais do Telegram não configuradas no notifier.")
 
 if __name__ == "__main__":
-    print("Iniciando serviço de monitoramento para o Telegram...")
-    # Aguarda 10 segundos iniciais para garantir que a API subiu por completo
-    time.sleep(10)
+    print("Iniciando container de notificação e histórico...")
+    inicializar_banco()
     
-    enviar_alerta_telegram()
+    # Agenda a varredura a cada 1 hora
+    schedule.every(1).hours.do(varredura_horaria)
+    
+    # Agenda o envio do relatório consolidado para todo dia às 08:00
+    schedule.every().day.at("08:00").do(enviar_relatorio_matinal_8am)
+    
+    # Loop contínuo de execução em segundo plano
     while True:
-        time.sleep(INTERVALO_SEGUNDOS)
-        enviar_alerta_telegram()
+        schedule.run_pending()
+        time.sleep(1)
