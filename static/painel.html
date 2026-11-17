@@ -23,8 +23,19 @@
         <div id="seg" class="flex rounded-lg overflow-hidden border border-slate-700 text-xs"></div>
         <select id="integ" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"></select>
         <select id="area" class="hidden bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"></select>
+        
+        <!-- Botão de Sincronizar -->
         <button id="sync" class="bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-3 py-1.5">↻ Sincronizar agora</button>
+        
+        <!-- Novo Botão de Enviar para o Telegram -->
+        <button id="btnTelegram" onclick="enviarAlertaTelegram()" class="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+          <span>📤 Enviar Telegram</span>
+        </button>
       </div>
+      
+      <!-- Feedback visual discreto para o envio do Telegram -->
+      <div id="telegramStatus" class="px-3 py-1 text-xs text-slate-400 hidden bg-slate-900/50 border-b border-slate-700/50"></div>
+
       <div class="scroll overflow-auto max-h-[calc(100vh-16rem)] min-h-[12rem]">
         <table class="w-full text-xs">
           <thead class="text-[11px] uppercase tracking-wide text-slate-400">
@@ -125,6 +136,39 @@
       try { const r = await loadDevices(); ds = r.ds; at = r.at; render(); } catch { /* toast já exibido */ }
       $('sync').disabled = false;
     }
+
+    // Função para disparar o envio do relatório para o Telegram
+    window.enviarAlertaTelegram = async function() {
+      const btn = $('btnTelegram');
+      const statusDiv = $('telegramStatus');
+      
+      btn.disabled = true;
+      statusDiv.classList.remove('hidden');
+      statusDiv.innerHTML = '<span class="text-cyan-400">⏳ Enviando relatório para o Telegram...</span>';
+
+      try {
+        const response = await fetch('/api/notify?client_name=Central%20de%20Operações', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const result = await response.json();
+        
+        if (response.ok) {
+          statusDiv.innerHTML = `<span class="text-emerald-400">✅ Relatório enviado com sucesso!</span>`;
+        } else {
+          statusDiv.innerHTML = `<span class="text-red-400">❌ Erro: ${result.detail || 'Falha ao disparar'}</span>`;
+        }
+      } catch (error) {
+        statusDiv.innerHTML = `<span class="text-red-400">❌ Erro de comunicação com a API.</span>`;
+      } finally {
+        btn.disabled = false;
+        // Oculta a mensagem de status após 5 segundos
+        setTimeout(() => { statusDiv.classList.add('hidden'); }, 5000);
+      }
+    };
 
     $('q').oninput = render;
     $('integ').onchange = render;
