@@ -11,6 +11,8 @@ services:
       - HA_TOKEN=${HA_TOKEN}
       - HA_URL=${HA_URL:-ws://host.docker.internal:8123/api/websocket}
       - API_KEY=${API_KEY}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}       # <--- ADICIONE ESTA LINHA AQUI
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}   # <--- ADICIONE ESTA LINHA AQUI
 
   ha-devices-notifier:
     build: .
