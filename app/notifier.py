@@ -126,3 +126,26 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(1)
+def limpar_registros_antigos():
+    """Apaga do SQLite registros com mais de 2 dias para otimizar o espaço."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Deleta registros onde o timestamp for menor que 2 dias atrás
+        cursor.execute('''
+            DELETE FROM historico_offline 
+            WHERE datetime(timestamp) < datetime('now', '-2 days')
+        ''')
+        
+        linhas_removidas = cursor.rowcount
+        conn.commit()
+        
+        # O comando VACUUM recupera o espaço em disco liberado pelo SQLite
+        cursor.execute('VACUUM')
+        conn.close()
+        
+        if linhas_removidas > 0:
+            print(f"Limpeza de banco: {linhas_removidas} registros antigos (> 2 dias) foram removidos.")
+    except Exception as e:
+        print(f"Erro ao limpar registros antigos do banco: {e}")
