@@ -183,6 +183,28 @@
     };
     window.addEventListener('prefs', render);
     auto(sync);
+    async function carregarPainelOffline() {
+    try {
+        const response = await fetch('/api/dispositivos/offline-historico');
+        const data = await response.json();
+        
+        if (data.status === "success") {
+            console.log("Dispositivos offline nas últimas 24h:", data.devices_offline);
+            
+            // Exemplo: iterar sobre os dados e jogar em uma tabela no seu painel.html
+            // const tbody = document.getElementById('tabela-offline');
+            // tbody.innerHTML = '';
+            // data.devices_offline.forEach(dev => {
+            //     tbody.innerHTML += `<tr><td>${dev.name}</td><td>${dev.total_horas_offline}h</td></tr>`;
+            // });
+        }
+    } catch (error) {
+        console.error("Erro ao carregar dados do painel:", error);
+    }
+}
+
+// Chamar ao carregar a página
+carregarPainelOffline();
   </script>
 </body>
 </html>
