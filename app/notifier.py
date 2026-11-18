@@ -11,7 +11,7 @@ API_URL = os.environ.get("API_URL", "http://ha-devices-api:8000/devices/offline"
 API_KEY = os.environ.get("API_KEY", "")
 
 # Usando /tmp temporariamente para garantir permissão de escrita imediata no container
-DB_PATH = os.environ.get("DB_PATH", "/tmp/tuya_historico.db")
+DB_PATH = os.environ.get("DB_PATH", "/app/data/tuya_historico.db")
 
 def inicializar_banco():
     """Garante que a pasta e a tabela de histórico offline existem no SQLite."""
