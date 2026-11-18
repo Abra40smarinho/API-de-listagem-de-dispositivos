@@ -15,8 +15,14 @@ API_KEY = os.environ.get("API_KEY", "")
 DB_PATH = os.environ.get("DB_PATH", "/app/data/tuya_historico.db")
 
 def inicializar_banco():
-    """Garante que a tabela de histórico offline existe no SQLite."""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    """Garante que a pasta e a tabela de histórico offline existem no SQLite."""
+    # Extrai o diretório do caminho do banco (ex: /app/data)
+    diretorio = os.path.dirname(DB_PATH)
+    
+    # Se houver um diretório especificado, cria ele caso não exista
+    if diretorio:
+        os.makedirs(diretorio, exist_ok=True)
+        
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -30,7 +36,6 @@ def inicializar_banco():
     ''')
     conn.commit()
     conn.close()
-
 def varredura_horaria():
     """Executado a cada 1 hora: coleta o status atual e salva no SQLite."""
     agora = datetime.now(timezone.utc).isoformat()
