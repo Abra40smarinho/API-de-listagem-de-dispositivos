@@ -240,9 +240,9 @@ from fastapi import FastAPI, HTTPException
 app = FastAPI()
 
 # Caminho do banco (ajuste para o caminho compartilhado/persistente, ex: /app/data/tuya_historico.db)
-DB_PATH = "/app/data/tuya_historico.db"
+DB_PATH = "/tmp/tuya_historico.db"
 
-@app.get("/api/dispositivos/offline-historico")
+@app.get("/tmp/tuya_historico.db")
 def obter_historico_offline():
     try:
         conn = sqlite3.connect(DB_PATH)
