@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+import sqlite3
 app = FastAPI(title="HA Devices API")
 
 # Define o caminho absoluto correto dentro do ambiente Linux do container
@@ -234,10 +235,7 @@ async def trigger_telegram_notification(client_name: str = Query("Central de Ope
         return {"status": "success", "message": f"Alerta enviado para o Telegram referente ao cliente: {client_name}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao enviar para o Telegram: {e}")
-import sqlite3
-from fastapi import FastAPI, HTTPException
 
-app = FastAPI()
 
 # Caminho do banco (ajuste para o caminho compartilhado/persistente, ex: /app/data/tuya_historico.db)
 DB_PATH = "/tmp/tuya_historico.db"
