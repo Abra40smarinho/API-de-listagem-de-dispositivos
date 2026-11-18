@@ -234,7 +234,48 @@ async def trigger_telegram_notification(client_name: str = Query("Central de Ope
         return {"status": "success", "message": f"Alerta enviado para o Telegram referente ao cliente: {client_name}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao enviar para o Telegram: {e}")
+import sqlite3
+from fastapi import FastAPI, HTTPException
 
+app = FastAPI()
+
+# Caminho do banco (ajuste para o caminho compartilhado/persistente, ex: /app/data/tuya_historico.db)
+DB_PATH = "/app/data/tuya_historico.db"
+
+@app.get("/api/dispositivos/offline-historico")
+def obter_historico_offline():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        # Permite acessar as colunas pelo nome do dicionário
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Consulta que soma as horas offline nas últimas 24h por dispositivo
+        cursor.execute('''
+            SELECT name, entity_id, COUNT(*) as total_horas_offline, MAX(timestamp) as ultima_vez_visto
+            FROM historico_offline
+            WHERE datetime(timestamp) >= datetime('now', '-24 hours')
+            GROUP BY entity_id
+            ORDER BY total_horas_offline DESC
+        ''')
+        
+        linhas = cursor.fetchall()
+        conn.close()
+        
+        # Transforma os resultados em uma lista de dicionários (JSON)
+        resultado = []
+        for linha in linhas:
+            resultado.append({
+                "name": linha["name"],
+                "entity_id": linha["entity_id"],
+                "total_horas_offline": linha["total_horas_offline"],
+                "ultima_vez_visto": linha["ultima_vez_visto"]
+            })
+            
+        return {"status": "success", "devices_offline": resultado}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health():
