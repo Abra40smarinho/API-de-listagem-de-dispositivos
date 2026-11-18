@@ -28,4 +28,4 @@ services:
       - API_KEY=${API_KEY}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-      - DB_PATH=/app/data/tuya_historico.db
+      - DB_PATH="/tmp/tuya_historico.db"
