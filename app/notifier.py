@@ -25,7 +25,7 @@ def inicializar_banco():
     if diretorio and not os.path.exists(diretorio):
         try:
             os.makedirs(diretorio, exist_ok=True)
-            print(Diretório criado com sucesso: {diretorio})
+            print(f"Diretório criado com sucesso: {diretorio}")
         except Exception as e:
             print(f"Aviso ao criar diretório: {e}")
 
