@@ -21,7 +21,8 @@ RUN useradd -r -m -u 1001 appuser \
 USER appuser
 
 EXPOSE 8000
-
+# Cria a pasta de dados dentro do container
+RUN mkdir -p /app/data && chmod 777 /app/data
 # OBSERVAÇÃO: Garanta que você criou uma rota chamando '/health' no seu app/main.py 
 # para o Healthcheck abaixo funcionar e não dar erro depois.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
