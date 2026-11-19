@@ -122,7 +122,7 @@ def enviar_relatorio_matinal_8am():
     else:
         mensagem += "⚠️ *Dispositivos com tempo offline nas últimas 24h:*\n\n"
         for name, entity_id, horas in resultados:
-            mensagem += f"• *{name}*: Aproximadamente *{horas}h* offline (`{entity_id}`)\n"
+            mensagem += f"• *{name}*: Aproximadamente *{horas}h* offline\n"
             
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
         url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
