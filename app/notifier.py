@@ -154,7 +154,7 @@ if __name__ == "__main__":
             time.sleep(60) # Pausa de 1 min para evitar repetição na mesma hora
             
         # Executa o relatório diário exatamente às 08:00
-        if agora.hour == 16 and agora.minute == 22:
+        if agora.hour == 19 and agora.minute == 28:
             enviar_relatorio_matinal_8am()
             time.sleep(60)
             
