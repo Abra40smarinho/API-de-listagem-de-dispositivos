@@ -148,7 +148,7 @@ if __name__ == "__main__":
         agora = datetime.now()
         
         # Executa a varredura a cada 1 hora (no minuto 0)
-        if agora.minute == 0:
+        if agora.minute 5% == 0:
             varredura_horaria()
             limpar_registros_antigos()
             time.sleep(60) # Pausa de 1 min para evitar repetição na mesma hora
