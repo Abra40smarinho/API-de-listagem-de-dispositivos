@@ -58,15 +58,20 @@ def varredura_horaria():
         cursor = conn.cursor()
         
         for dev in devices:
-            entity_id = dev.get("id")
             name = dev.get("name")
-            status = dev.get("status")
+            # Como a rota chama /devices/offline, todos aqui estão offline. 
+            # Podemos salvar a quantidade de entidades indisponíveis como status:
+            unavailable_count = dev.get("unavailable_entities", 1)
+            status = f"Offline ({unavailable_count} entidades)"
+            
+            # Como o JSON da API não manda um 'id' explícito por device mas manda o 'name', 
+            # usamos o próprio name como identificador único se necessário:
+            entity_id = name.lower().replace(" ", "_")
             
             cursor.execute('''
                 INSERT INTO historico_offline (timestamp, entity_id, name, status)
                 VALUES (?, ?, ?, ?)
             ''', (agora, entity_id, name, status))
-            
         conn.commit()
         conn.close()
         print(f"Varredura concluída. {len(devices)} registros offline salvos.")
