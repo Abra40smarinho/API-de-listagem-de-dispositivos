@@ -56,6 +56,26 @@
     </section>
   </main>
 
+
+  <!-- Modal de histórico de 30 dias -->
+  <div id="modalHistorico" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitulo">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden m-4">
+      <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+        <div>
+          <h3 id="modalTitulo" class="text-base font-semibold text-slate-100">Histórico de Longo Prazo</h3>
+          <p id="modalSubtitulo" class="text-xs text-slate-400 font-mono mt-0.5"></p>
+        </div>
+        <button id="btnFecharHistorico" type="button" class="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg p-1.5 transition-colors">✕ Fechar</button>
+      </div>
+      <div class="p-4 overflow-y-auto scroll flex-1">
+        <div id="modalConteudo" class="space-y-2"><p class="text-sm text-slate-500 text-center py-8">Selecione uma entidade.</p></div>
+      </div>
+      <div class="p-3 border-t border-slate-700 bg-slate-800/30 text-right text-xs text-slate-500">
+        Registros de alteração dos últimos 30 dias (via home-assistant_v2.db)
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import { nav, loadDevices, isOff, visible, STATUS, esc, auto, ago, pref } from '/static/ui.js';
     nav('painel');
@@ -115,7 +135,7 @@
         const nb = d.bad.length, ne = d.entities.length;
         const detail = open.has(d.id) ? `<tr class="bg-slate-900/50"><td colspan="7" class="px-3 py-2">
             <div class="flex flex-wrap gap-1">${d.entities.length ? d.entities.map(e =>
-              `<span class="px-1.5 py-0.5 rounded font-mono text-[11px] ${d.bad.includes(e) ? 'bg-red-500/15 text-red-300' : 'bg-slate-700/60 text-slate-400'}">${esc(e)}</span>`).join('') : '<span class="text-slate-500">Sem entidades no Home Assistant</span>'}</div>
+              `<button type="button" data-history-entity="${esc(e)}" data-history-name="${esc(d.name)}" title="Clique para consultar histórico de 30 dias" class="px-1.5 py-0.5 rounded font-mono text-[11px] underline decoration-dotted underline-offset-2 hover:bg-indigo-500/20 ${d.bad.includes(e) ? 'bg-red-500/15 text-red-300' : 'bg-slate-700/60 text-slate-400'}">${esc(e)}</button>`).join('') : '<span class="text-slate-500">Sem entidades no Home Assistant</span>'}</div>
             <p class="mt-1 text-[11px] text-slate-500">${esc(d.manufacturer || '—')} · ${esc(d.model || '—')} · ID ${esc(d.id)}</p></td></tr>` : '';
         return `<tr data-id="${esc(d.id)}" class="border-t border-slate-700/50 hover:bg-slate-700/30 cursor-pointer">
           <td class="px-3 py-1.5 whitespace-nowrap"><span class="inline-flex items-center gap-1.5 ${txt}"><span class="w-1.5 h-1.5 rounded-full ${dot} ${d.status === 'unavailable' ? 'animate-pulse' : ''}"></span>${label}</span></td>
@@ -169,28 +189,69 @@
       }
     };
 
-    // Nova Função para carregar o histórico de 30 dias diretamente do home-assistant_v2.db via API
+    // Modal: consulta e exibe o histórico da entidade selecionada.
+    window.abrirModalHistorico = async function(entityId, nomeDispositivo) {
+      const modal = $('modalHistorico');
+      const titulo = $('modalTitulo');
+      const subtitulo = $('modalSubtitulo');
+      const conteudo = $('modalConteudo');
+
+      modal.classList.remove('hidden');
+      titulo.textContent = `Histórico (30 Dias) · ${nomeDispositivo}`;
+      subtitulo.textContent = `Entidade: ${entityId}`;
+      conteudo.innerHTML = '<p class="text-center py-10 text-cyan-400 animate-pulse text-sm">Consultando banco de dados do Home Assistant...</p>';
+
+      try {
+        const response = await fetch(`/api/historico-30dias?entity_id=${encodeURIComponent(entityId)}`);
+        const dados = await response.json();
+        if (!response.ok || dados.status !== 'success') {
+          conteudo.innerHTML = `<p class="text-sm text-red-400 text-center py-8">Erro ao carregar: ${esc(dados.detail || 'Falha desconhecida')}</p>`;
+          return;
+        }
+        if (!Array.isArray(dados.historico) || dados.historico.length === 0) {
+          conteudo.innerHTML = '<p class="text-sm text-slate-400 text-center py-8">Nenhum registro encontrado para esta entidade nos últimos 30 dias.</p>';
+          return;
+        }
+
+        conteudo.innerHTML = `
+          <div class="space-y-1.5">
+            <p class="text-xs text-slate-400 mb-3">Total de ${Number(dados.total_mudancas) || dados.historico.length} mudanças registradas:</p>
+            ${dados.historico.map(ev => {
+              const dataFormatada = new Date(Number(ev.timestamp) * 1000).toLocaleString('pt-BR');
+              let corBadge = 'bg-slate-800 text-slate-300 border-slate-700';
+              if (ev.state === 'on') corBadge = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+              else if (ev.state === 'off') corBadge = 'bg-slate-700/40 text-slate-300 border-slate-600';
+              else if (ev.state === 'unavailable' || ev.state === 'unknown') corBadge = 'bg-red-500/10 text-red-400 border-red-500/20';
+              return `<div class="flex items-center justify-between gap-3 bg-slate-800/40 border border-slate-700/60 rounded-lg px-3 py-2 text-xs">
+                <span class="text-slate-300 font-mono">${esc(dataFormatada)}</span>
+                <span class="px-2 py-0.5 rounded border font-mono font-medium ${corBadge}">${esc(ev.state)}</span>
+              </div>`;
+            }).join('')}
+          </div>`;
+      } catch (erro) {
+        conteudo.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Erro de conexão ao buscar o histórico de 30 dias.</p>';
+      }
+    };
+
+    window.fecharModalHistorico = function() {
+      $('modalHistorico').classList.add('hidden');
+    };
+    $('btnFecharHistorico').addEventListener('click', window.fecharModalHistorico);
+    $('modalHistorico').addEventListener('click', e => {
+      if (e.target === $('modalHistorico')) window.fecharModalHistorico();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !$('modalHistorico').classList.contains('hidden')) window.fecharModalHistorico();
+    });
+
+    // Compatibilidade: função de consulta também retorna os registros.
     window.carregarHistorico30Dias = async function(entityId) {
       try {
-        const response = await fetch(`/api/historico-30dias?entity_id=${entityId}`);
+        const response = await fetch(`/api/historico-30dias?entity_id=${encodeURIComponent(entityId)}`);
         const dados = await response.json();
-        
-        if (dados.status === "success") {
-          console.log(`Histórico de 30 dias para ${entityId}:`, dados.total_mudancas, "mudanças encontradas.");
-          
-          // Exemplo de como percorrer e formatar cada evento retornado do banco do HA:
-          dados.historico.forEach(evento => {
-            const dataFormatada = new Date(evento.timestamp * 1000).toLocaleString("pt-BR");
-            // console.log(`[${dataFormatada}] Estado: ${evento.state}`);
-          });
-          
-          return dados.historico;
-        } else {
-          console.error("Erro ao buscar histórico:", dados.detail);
-          return [];
-        }
+        return response.ok && dados.status === 'success' ? dados.historico : [];
       } catch (erro) {
-        console.error("Erro de rede ao buscar histórico de 30 dias:", erro);
+        console.error('Erro de rede ao buscar histórico:', erro);
         return [];
       }
     };
@@ -201,6 +262,12 @@
     $('sync').onclick = sync;
     $('seg').onclick = e => { const b = e.target.closest('button'); if (b) { mode = b.dataset.m; render(); } };
     $('rows').onclick = e => {
+      const historyButton = e.target.closest('button[data-history-entity]');
+      if (historyButton) {
+        e.stopPropagation();
+        window.abrirModalHistorico(historyButton.dataset.historyEntity, historyButton.dataset.historyName);
+        return;
+      }
       const tr = e.target.closest('tr[data-id]');
       if (!tr) return;
       open.has(tr.dataset.id) ? open.delete(tr.dataset.id) : open.add(tr.dataset.id);
