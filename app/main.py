@@ -274,6 +274,55 @@ def obter_historico_offline():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+# Caminho padrão onde o Home Assistant armazena o banco dentro do container / volume compartilhado
+HA_DB_PATH = os.environ.get("HA_DB_PATH", "/config/home-assistant_v2.db")
+
+@app.get("/api/historico-30dias", dependencies=[Depends(check_key)])
+def historico_dispositivos_30dias(entity_id: str = Query(..., description="Ex: switch.luz_sala")):
+    """Consulta o home-assistant_v2.db oficial para retornar o histórico de estados dos últimos 30 dias."""
+    if not os.path.exists(HA_DB_PATH):
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Banco de dados do Home Assistant não encontrado no caminho: {HA_DB_PATH}. Verifique se o volume /config está mapeado no container."
+        )
+    
+    try:
+        # Abre em modo somente leitura (?mode=ro) para evitar conflitos de lock com o Home Assistant
+        conn = sqlite3.connect(f"file:{HA_DB_PATH}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Query otimizada que cruza states e states_meta para os últimos 30 dias
+        query = """
+            SELECT s.state, s.last_updated_ts 
+            FROM states s
+            JOIN states_meta sm ON s.metadata_id = sm.metadata_id
+            WHERE sm.entity_id = ? 
+              AND s.last_updated_ts >= (strftime('%s', 'now') - 2592000)
+            ORDER BY s.last_updated_ts ASC
+        """
+        
+        cursor.execute(query, (entity_id,))
+        linhas = cursor.fetchall()
+        conn.close()
+        
+        historico = []
+        for linha in linhas:
+            historico.append({
+                "state": linha["state"],
+                "timestamp": linha["last_updated_ts"]
+            })
+            
+        return {
+            "status": "success",
+            "entity_id": entity_id,
+            "periodo": "30 dias",
+            "total_mudancas": len(historico),
+            "historico": historico
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar o banco do Home Assistant: {e}")
 
 @app.get("/health")
 async def health():
