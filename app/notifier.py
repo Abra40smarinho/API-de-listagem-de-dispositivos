@@ -98,31 +98,33 @@ def limpar_registros_antigos():
         print(f"Erro ao limpar registros antigos do banco: {e}")
 
 def enviar_relatorio_matinal_8am():
-    """Executado todo dia às 08:00: calcula as últimas 24h e envia o resumo para o Telegram."""
-    print("Gerando relatório matinal das 08:00...")
+    """Executado todo dia: calcula o acumulado dos últimos 2 dias e envia o resumo para o Telegram."""
+    print("Gerando relatório matinal de indisponibilidade (período de 2 dias)...")
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
+    # Modificado de '-24 hours' para '-2 days'
     cursor.execute('''
-        SELECT name, entity_id, COUNT(*) as total_horas
+        SELECT name, entity_id, COUNT(*) as total_registros
         FROM historico_offline
-        WHERE datetime(timestamp) >= datetime('now', '-24 hours')
+        WHERE datetime(timestamp) >= datetime('now', '-2 days')
         GROUP BY entity_id
-        ORDER BY total_horas DESC
+        ORDER BY total_registros DESC
     ''')
     
     resultados = cursor.fetchall()
     conn.close()
     
-    mensagem = f"☀️ *Relatório Matinal - Central de Operações* (08:00)\n\n"
+    mensagem = f"☀️ *Relatório de Indisponibilidade - 2 Dias* (Central de Operações)\n\n"
     
     if not resultados:
-        mensagem += "✅ Nenhum registro de instabilidade nas últimas 24 horas! Todos 100% online."
+        mensagem += "✅ Nenhum registro de instabilidade nos últimos 2 dias! Dispositivos 100% estáveis."
     else:
-        mensagem += "⚠️ *Dispositivos com tempo offline nas últimas 24h:*\n\n"
-        for name, entity_id, horas in resultados:
-            mensagem += f"• *{name}*: Aproximadamente *{horas}h* offline\n"
+        mensagem += "⚠️ *Dispositivos com registros offline no período (últimos 2 dias):*\n\n"
+        for name, entity_id, registros in resultados:
+            # Cada registro equivale a 1 varredura horária capturada pelo notifier
+            mensagem += f"• *{name}*: Registrado offline em *{registros}* varreduras\n"
             
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
         url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -133,12 +135,11 @@ def enviar_relatorio_matinal_8am():
         }
         try:
             requests.post(url_telegram, json=payload, timeout=10)
-            print("Relatório matinal enviado com sucesso para o Telegram.")
+            print("Relatório de 2 dias enviado com sucesso para o Telegram.")
         except Exception as e:
-            print(f"Erro ao enviar mensagem para o Telegram: {e}")
+            print(f"Erro ao enviar mensagem para el Telegram: {e}")
     else:
         print("Credenciais do Telegram não configuradas no notifier.")
-
 if __name__ == "__main__":
     print("Iniciando container de notificação e histórico...")
     inicializar_banco()
