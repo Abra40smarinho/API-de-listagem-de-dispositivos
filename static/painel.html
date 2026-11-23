@@ -165,8 +165,33 @@
         statusDiv.innerHTML = `<span class="text-red-400">❌ Erro de comunicação com a API.</span>`;
       } finally {
         btn.disabled = false;
-        // Oculta a mensagem de status após 5 segundos
         setTimeout(() => { statusDiv.classList.add('hidden'); }, 5000);
+      }
+    };
+
+    // Nova Função para carregar o histórico de 30 dias diretamente do home-assistant_v2.db via API
+    window.carregarHistorico30Dias = async function(entityId) {
+      try {
+        const response = await fetch(`/api/historico-30dias?entity_id=${entityId}`);
+        const dados = await response.json();
+        
+        if (dados.status === "success") {
+          console.log(`Histórico de 30 dias para ${entityId}:`, dados.total_mudancas, "mudanças encontradas.");
+          
+          // Exemplo de como percorrer e formatar cada evento retornado do banco do HA:
+          dados.historico.forEach(evento => {
+            const dataFormatada = new Date(evento.timestamp * 1000).toLocaleString("pt-BR");
+            // console.log(`[${dataFormatada}] Estado: ${evento.state}`);
+          });
+          
+          return dados.historico;
+        } else {
+          console.error("Erro ao buscar histórico:", dados.detail);
+          return [];
+        }
+      } catch (erro) {
+        console.error("Erro de rede ao buscar histórico de 30 dias:", erro);
+        return [];
       }
     };
 
@@ -183,28 +208,21 @@
     };
     window.addEventListener('prefs', render);
     auto(sync);
-    async function carregarPainelOffline() {
-    try {
-        const response = await fetch('/api/dispositivos/offline-historico');
-        const data = await response.json();
-        
-        if (data.status === "success") {
-            console.log("Dispositivos offline nas últimas 24h:", data.devices_offline);
-            
-            // Exemplo: iterar sobre os dados e jogar em uma tabela no seu painel.html
-            // const tbody = document.getElementById('tabela-offline');
-            // tbody.innerHTML = '';
-            // data.devices_offline.forEach(dev => {
-            //     tbody.innerHTML += `<tr><td>${dev.name}</td><td>${dev.total_horas_offline}h</td></tr>`;
-            // });
-        }
-    } catch (error) {
-        console.error("Erro ao carregar dados do painel:", error);
-    }
-}
 
-// Chamar ao carregar a página
-carregarPainelOffline();
+    async function carregarPainelOffline() {
+      try {
+          const response = await fetch('/api/dispositivos/offline-historico');
+          const data = await response.json();
+          
+          if (data.status === "success") {
+              console.log("Dispositivos offline nas últimas 24h:", data.devices_offline);
+          }
+      } catch (error) {
+          console.error("Erro ao carregar dados do painel:", error);
+      }
+    }
+
+    carregarPainelOffline();
   </script>
 </body>
 </html>
