@@ -10,10 +10,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # 1. Adicionado aqui: Mapeia a pasta config do Home Assistant em modo somente leitura
-      - /caminho/no/seu/host/config:/config:ro
-      # 2. Se o seu notifier grava o tuya_historico.db em um volume compartilhado, 
-      # garanta que a API também enxergue esse volume se for ler dele:
+      # SUBSTITUA AQUI pelo caminho real absoluto da pasta config no seu host:
+      - /root/ha-config:/config:ro
       - dados_db_totais:/app/data
     environment:
       - HA_TOKEN=${HA_TOKEN}
