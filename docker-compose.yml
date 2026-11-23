@@ -10,8 +10,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # SUBSTITUA AQUI pelo caminho real absoluto da pasta config no seu host:
-      - /root/ha-config:/config:ro
+      # Mapeia a pasta /homeassistant do host exatamente para /homeassistant dentro do container
+      - /homeassistant:/homeassistant:ro
       - dados_db_totais:/app/data
     environment:
       - HA_TOKEN=${HA_TOKEN}
@@ -19,6 +19,7 @@ services:
       - API_KEY=${API_KEY}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # Aponta a variável direto para o caminho correto dentro do container:
       - HA_DB_PATH=/homeassistant/home-assistant_v2.db
 
   ha-devices-notifier:
