@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Monitor Home Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <style>
     body { background: radial-gradient(1200px 500px at 50% -10%, #1e1b4b55, transparent), #0f172a; }
     thead th { position: sticky; top: 0; z-index: 1; }
@@ -17,24 +18,56 @@
   <main class="max-w-[1400px] mx-auto px-4 py-4 space-y-4">
     <section id="metrics" class="grid grid-cols-2 md:grid-cols-5 gap-3"></section>
 
-    <!-- Saúde de Conexão (24h): ranking de instáveis + linha do tempo -->
-    <section id="saude-conexao" class="bg-slate-800/60 border border-slate-700 rounded-xl p-3 flex flex-col h-[280px]">
-      <div class="flex items-center justify-between gap-3 mb-2">
+    <!-- Saúde de Conexão (24h): barras empilhadas por hora + ranking por dispositivo -->
+    <section id="saude-conexao" class="bg-slate-800/60 border border-slate-700 rounded-xl p-3">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div class="min-w-0">
           <h3 class="text-sm font-semibold text-slate-100">Saúde de conexão · 24h</h3>
           <p id="sc-resumo" class="text-xs text-slate-400 truncate">Carregando…</p>
         </div>
-        <div class="flex items-center gap-1 text-xs shrink-0" role="group" aria-label="Ordenar por">
-          <button type="button" data-ordem="tempo" class="sc-ordem px-2 py-1 rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">Tempo offline</button>
-          <button type="button" data-ordem="quedas" class="sc-ordem px-2 py-1 rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">Nº de quedas</button>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <div id="sc-ordem-box" class="hidden items-center gap-1" role="group" aria-label="Ordenar por">
+            <button type="button" data-ordem="tempo" class="sc-ordem px-2 py-1 rounded-md border text-slate-300 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">Tempo offline</button>
+            <button type="button" data-ordem="quedas" class="sc-ordem px-2 py-1 rounded-md border text-slate-300 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">Nº de quedas</button>
+          </div>
+          <div class="flex rounded-lg overflow-hidden border border-slate-700" role="tablist">
+            <button type="button" role="tab" data-aba="hora" class="sc-aba px-3 py-1.5">Por hora</button>
+            <button type="button" role="tab" data-aba="disp" class="sc-aba px-3 py-1.5">Por dispositivo</button>
+          </div>
         </div>
       </div>
-      <div class="grid grid-cols-[minmax(0,9rem)_1fr_5.5rem] sm:grid-cols-[minmax(0,13rem)_1fr_6.5rem] gap-3 px-2 text-[11px] text-slate-500">
-        <span>Dispositivo</span>
-        <div class="flex justify-between"><span>−24h</span><span>−12h</span><span>agora</span></div>
-        <span class="text-right">Offline</span>
+
+      <!-- Aba: por hora -->
+      <div id="sc-view-hora" class="relative h-[190px]"><canvas id="sc-canvas"></canvas></div>
+
+      <!-- Aba: por dispositivo -->
+      <div id="sc-view-disp" class="hidden flex-col h-[190px]">
+        <div class="grid grid-cols-[minmax(0,9rem)_1fr_5.5rem] sm:grid-cols-[minmax(0,13rem)_1fr_6.5rem] gap-3 px-2 text-[11px] text-slate-500">
+          <span>Dispositivo</span>
+          <div class="flex justify-between"><span>−24h</span><span>−12h</span><span>agora</span></div>
+          <span class="text-right">Offline</span>
+        </div>
+        <ul id="sc-lista" class="scroll flex-1 overflow-y-auto mt-1 divide-y divide-slate-700/50"></ul>
       </div>
-      <ul id="sc-lista" class="scroll flex-1 overflow-y-auto mt-1 divide-y divide-slate-700/50"></ul>
+
+      <details class="mt-2">
+        <summary class="cursor-pointer select-none text-xs text-slate-300 hover:text-white">Contagens por hora</summary>
+        <div class="scroll max-h-40 overflow-auto mt-1 border border-slate-700/60 rounded-lg">
+          <table class="w-full text-xs tabular-nums">
+            <thead class="text-[11px] text-slate-400">
+              <tr class="bg-slate-900">
+                <th class="px-2 py-1 text-left">Hora</th>
+                <th class="px-2 py-1 text-right">Energia</th>
+                <th class="px-2 py-1 text-right">Rede</th>
+                <th class="px-2 py-1 text-right">Reconexão</th>
+                <th class="px-2 py-1 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody id="sc-tabela" class="divide-y divide-slate-700/50"></tbody>
+          </table>
+        </div>
+        <p id="sc-nota" class="mt-1 text-[11px] text-slate-500"></p>
+      </details>
     </section>
 
     <section class="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
@@ -300,13 +333,20 @@
     const SC = {
       urlDiaria: '/api/disponibilidade-diaria',
       urlHistorico: id => `/api/historico-30dias?entity_id=${encodeURIComponent(id)}`,
-      estadosOffline: ['unavailable'],   // adicione 'unknown' para contar como queda
-      maxComHistorico: 20,
+      estadosOffline: ['unavailable'],  // adicione 'unknown' para contar como queda
+      maxComHistorico: 40,              // quantos dispositivos (os piores) buscam histórico
+      energiaMinDispositivos: 3,        // >= N dispositivos caindo juntos => "possível queda de energia"
+      energiaJanelaSeg: 90,             // ...dentro desta janela (segundos)
       refreshMs: 60000,
-      cacheMs: 60000,
+      cacheMs: 30000,
     };
+    const SC_SERIES = [
+      { key: 'energia',   label: 'Possível queda de energia / reinicialização', cor: '#fb7185' },
+      { key: 'rede',      label: 'Queda de rede / comunicação',                 cor: '#6b86e8' },
+      { key: 'reconexao', label: 'Reconexão detectada',                         cor: '#4aa8f0' },
+    ];
     const scCache = new Map();
-    let scOrdem = 'tempo', scItens = [];
+    let scChart = null, scAba = 'hora', scOrdem = 'tempo', scItens = [], scHoras = [], scTruncado = 0;
 
     // < 1 min: "45s" · < 1 h: "1m 12s" · >= 1 h: "2h 15m"
     function fmtDuracao(min) {
@@ -319,22 +359,25 @@
     }
     const fmtHora = ts => new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
+    // Percorre as mudanças de estado dentro de [t0, t1] e devolve trechos offline, quedas e reconexões
     function calcularJanela(historico, t0, t1) {
       const ev = [...historico].sort((a, b) => a.timestamp - b.timestamp);
       const off = s => SC.estadosOffline.includes(s);
       let i = 0, estado = 'on';
       for (; i < ev.length && ev[i].timestamp <= t0; i++) estado = ev[i].state;
-      const segs = []; let quedas = 0, cursor = t0;
+      const segs = [], quedas = [], reconexoes = [];
+      let cursor = t0;
       const fechar = fim => { if (off(estado) && fim > cursor) segs.push({ ini: cursor, fim }); };
       for (; i < ev.length; i++) {
         const e = ev[i];
         if (e.timestamp > t1) break;
         fechar(e.timestamp);
-        if (off(e.state) && !off(estado)) quedas++;
+        if (off(e.state) && !off(estado)) quedas.push(e.timestamp);
+        if (!off(e.state) && off(estado)) reconexoes.push(e.timestamp);
         cursor = e.timestamp; estado = e.state;
       }
       fechar(t1);
-      return { segs, quedas };
+      return { segs, quedas, reconexoes };
     }
 
     async function historicoCache(id) {
@@ -345,6 +388,48 @@
       const dados = (await r.json()).historico || [];
       scCache.set(id, { t: Date.now(), dados });
       return dados;
+    }
+
+    // Agrupa em 24 faixas de 1h (a última é a hora atual)
+    function scConsolidar(t1) {
+      const ini = Math.floor(t1 / 3600) * 3600 - 23 * 3600;
+      const horas = Array.from({ length: 24 }, (_, i) => ({ ini: ini + i * 3600, energia: 0, rede: 0, reconexao: 0 }));
+      const add = (ts, k) => { const i = Math.floor((ts - ini) / 3600); if (i >= 0 && i < 24) horas[i][k]++; };
+      const quedas = [];
+      scItens.forEach(d => {
+        if (!d.hist) return;
+        const j = calcularJanela(d.hist, ini, t1);
+        j.quedas.forEach(ts => quedas.push({ ts, id: d.entity_id }));
+        j.reconexoes.forEach(ts => add(ts, 'reconexao'));
+      });
+      quedas.forEach(q => {
+        const ids = new Set(quedas.filter(o => Math.abs(o.ts - q.ts) <= SC.energiaJanelaSeg).map(o => o.id));
+        add(q.ts, ids.size >= SC.energiaMinDispositivos ? 'energia' : 'rede');
+      });
+      scHoras = horas;
+    }
+
+    // ----- Renderização -----
+    function scRenderAbas() {
+      document.querySelectorAll('.sc-aba').forEach(b => {
+        const a = b.dataset.aba === scAba;
+        b.classList.toggle('bg-indigo-500', a); b.classList.toggle('text-white', a);
+        b.classList.toggle('bg-slate-900', !a); b.classList.toggle('text-slate-300', !a);
+        b.classList.toggle('hover:bg-slate-700', !a);
+        b.setAttribute('aria-selected', a);
+      });
+      const hora = scAba === 'hora';
+      $('sc-view-hora').classList.toggle('hidden', !hora);
+      $('sc-view-disp').classList.toggle('hidden', hora);
+      $('sc-view-disp').classList.toggle('flex', !hora);
+      $('sc-ordem-box').classList.toggle('hidden', hora);
+      $('sc-ordem-box').classList.toggle('flex', !hora);
+      document.querySelectorAll('.sc-ordem').forEach(b => {
+        const a = b.dataset.ordem === scOrdem;
+        b.classList.toggle('bg-indigo-600/30', a); b.classList.toggle('border-indigo-500', a);
+        b.classList.toggle('border-slate-600', !a);
+        b.setAttribute('aria-pressed', a);
+      });
     }
 
     function scLinha(d) {
@@ -363,37 +448,98 @@
         <span class="text-right text-xs tabular-nums text-slate-100">${fmtDuracao(d.minutos)}${q}</span></button></li>`;
     }
 
-    function scRender() {
+    function scRenderLista() {
       const lista = [...scItens].sort((a, b) => scOrdem === 'quedas'
         ? (b.quedas ?? -1) - (a.quedas ?? -1) || b.minutos - a.minutos
         : b.minutos - a.minutos);
       $('sc-lista').innerHTML = lista.length ? lista.map(scLinha).join('')
-        : '<li class="h-full flex items-center justify-center py-10 text-sm text-emerald-400">Nenhuma indisponibilidade nas últimas 24h</li>';
-      const total = scItens.reduce((n, d) => n + (d.quedas || 0), 0);
-      $('sc-resumo').textContent = lista.length
-        ? `${lista.length} dispositivo${lista.length > 1 ? 's' : ''} com queda` + (scItens.some(d => d.quedas != null) ? ` · ${total} quedas no total` : '')
-        : 'Tudo estável';
-      document.querySelectorAll('.sc-ordem').forEach(b => {
-        const a = b.dataset.ordem === scOrdem;
-        b.classList.toggle('bg-indigo-600/30', a);
-        b.classList.toggle('border-indigo-500', a);
-        b.classList.toggle('border-slate-600', !a);
-        b.setAttribute('aria-pressed', a);
-      });
+        : '<li class="py-10 text-center text-sm text-emerald-400">Nenhuma indisponibilidade nas últimas 24h</li>';
+    }
+
+    function scRenderGrafico() {
+      if (!window.Chart) { $('sc-view-hora').innerHTML = '<p class="py-10 text-center text-sm text-slate-500">Chart.js não carregou.</p>'; return; }
+      const labels = scHoras.map(h => fmtHora(h.ini));
+      const dados = SC_SERIES.map(s => scHoras.map(h => h[s.key]));
+      if (!scChart) {
+        const eixo = '#94a3b8';
+        scChart = new Chart($('sc-canvas'), {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: SC_SERIES.map((s, i) => ({ label: s.label, data: dados[i], backgroundColor: s.cor, borderWidth: 0, stack: 'ev', categoryPercentage: 0.92, barPercentage: 0.9 })),
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { position: 'top', labels: { color: eixo, boxWidth: 10, boxHeight: 10, padding: 12, font: { size: 11 } } },
+              tooltip: {
+                backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1,
+                titleColor: '#e2e8f0', bodyColor: '#cbd5e1', footerColor: '#e2e8f0',
+                callbacks: {
+                  title: it => { const h = scHoras[it[0].dataIndex]; return `${fmtHora(h.ini)} – ${fmtHora(h.ini + 3600)}`; },
+                  footer: it => `Total: ${it.reduce((n, x) => n + x.parsed.y, 0)}`,
+                },
+              },
+            },
+            scales: {
+              x: { stacked: true, grid: { display: false }, ticks: { color: eixo, font: { size: 10 }, maxRotation: 0, autoSkip: true } },
+              y: {
+                stacked: true, beginAtZero: true,
+                ticks: { color: eixo, precision: 0, font: { size: 10 } },
+                grid: { color: 'rgba(203,213,225,.25)' },
+                title: { display: true, text: 'Eventos por hora', color: eixo, font: { size: 10 } },
+              },
+            },
+          },
+        });
+      } else {
+        scChart.data.labels = labels;
+        scChart.data.datasets.forEach((ds, i) => { ds.data = dados[i]; });
+        scChart.update();
+      }
+    }
+
+    function scRenderTabela() {
+      $('sc-tabela').innerHTML = scHoras.map(h => {
+        const tot = h.energia + h.rede + h.reconexao;
+        const c = (v, cor) => `<td class="px-2 py-1 text-right ${v ? '' : 'text-slate-600'}" ${v ? `style="color:${cor}"` : ''}>${v}</td>`;
+        return `<tr class="${tot ? '' : 'opacity-60'}"><td class="px-2 py-1 text-slate-300">${fmtHora(h.ini)}</td>${c(h.energia, '#fb7185')}${c(h.rede, '#8da2f0')}${c(h.reconexao, '#4aa8f0')}<td class="px-2 py-1 text-right text-slate-100">${tot}</td></tr>`;
+      }).join('');
+      $('sc-nota').textContent = `“Possível queda de energia” = ${SC.energiaMinDispositivos}+ dispositivos caindo em até ${SC.energiaJanelaSeg}s (heurística). As demais quedas contam como rede/comunicação.`;
+    }
+
+    function scRender() {
+      const nq = scItens.reduce((n, d) => n + (d.quedas || 0), 0);
+      $('sc-resumo').textContent = scItens.length
+        ? `${scItens.length} dispositivo${scItens.length > 1 ? 's' : ''} com queda · ${nq} queda${nq === 1 ? '' : 's'}` + (scTruncado ? ` · analisando os ${SC.maxComHistorico} piores` : '')
+        : 'Tudo estável nas últimas 24h';
+      scRenderAbas();
+      scRenderLista();
+      scRenderGrafico();
+      scRenderTabela();
     }
 
     async function carregarSaudeConexao() {
       try {
         const j = await (await fetch(SC.urlDiaria)).json();
         const t1 = Date.now() / 1000;
+        const ant = new Map(scItens.map(d => [d.entity_id, d]));
         scItens = (j.dispositivos || []).filter(d => d.tempo_offline_minutos > 0)
-          .map(d => ({ entity_id: d.entity_id, minutos: d.tempo_offline_minutos, t1, segs: null, quedas: null }))
+          .map(d => {
+            const o = ant.get(d.entity_id) || {};
+            return { entity_id: d.entity_id, minutos: d.tempo_offline_minutos, t1, hist: o.hist || null, segs: o.segs || null, quedas: o.quedas ?? null };
+          })
           .sort((a, b) => b.minutos - a.minutos);
+        scTruncado = Math.max(0, scItens.length - SC.maxComHistorico);
+        scConsolidar(t1);
         scRender();
         await Promise.allSettled(scItens.slice(0, SC.maxComHistorico).map(async d => {
-          const { segs, quedas } = calcularJanela(await historicoCache(d.entity_id), t1 - 86400, t1);
-          d.segs = segs; d.quedas = quedas;
+          d.hist = await historicoCache(d.entity_id);
+          const w = calcularJanela(d.hist, t1 - 86400, t1);
+          d.segs = w.segs; d.quedas = w.quedas.length;
         }));
+        scConsolidar(t1);
         scRender();
       } catch (e) {
         console.error('Saúde de conexão:', e);
@@ -401,12 +547,18 @@
       }
     }
 
+    // ----- Interações -----
     $('sc-lista').addEventListener('click', e => {
       const b = e.target.closest('[data-entity]');
       if (b) window.abrirModalHistorico(b.dataset.entity, b.dataset.entity);
     });
-    document.querySelectorAll('.sc-ordem').forEach(b =>
-      b.addEventListener('click', () => { scOrdem = b.dataset.ordem; scRender(); }));
+    document.querySelectorAll('.sc-aba').forEach(b => b.addEventListener('click', () => {
+      scAba = b.dataset.aba; scRenderAbas();
+      if (scAba === 'hora' && scChart) scChart.resize();
+    }));
+    document.querySelectorAll('.sc-ordem').forEach(b => b.addEventListener('click', () => {
+      scOrdem = b.dataset.ordem; scRenderAbas(); scRenderLista();
+    }));
 
     carregarSaudeConexao();
     setInterval(carregarSaudeConexao, SC.refreshMs);
