@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Monitor Home Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { background: radial-gradient(1200px 500px at 50% -10%, #1e1b4b55, transparent), #0f172a; }
     thead th { position: sticky; top: 0; z-index: 1; }
@@ -18,10 +17,24 @@
   <main class="max-w-[1400px] mx-auto px-4 py-4 space-y-4">
     <section id="metrics" class="grid grid-cols-2 md:grid-cols-5 gap-3"></section>
 
-    <!-- Gráfico de Logística de Indisponibilidade -->
-    <section class="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
-      <h3 class="text-sm font-semibold text-slate-200 mb-3">Logística de Indisponibilidade (Últimas 24h - em Horas)</h3>
-      <canvas id="graficoIndisponibilidade" height="80"></canvas>
+    <!-- Saúde de Conexão (24h): ranking de instáveis + linha do tempo -->
+    <section id="saude-conexao" class="bg-slate-800/60 border border-slate-700 rounded-xl p-3 flex flex-col h-[280px]">
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="min-w-0">
+          <h3 class="text-sm font-semibold text-slate-100">Saúde de conexão · 24h</h3>
+          <p id="sc-resumo" class="text-xs text-slate-400 truncate">Carregando…</p>
+        </div>
+        <div class="flex items-center gap-1 text-xs shrink-0" role="group" aria-label="Ordenar por">
+          <button type="button" data-ordem="tempo" class="sc-ordem px-2 py-1 rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">Tempo offline</button>
+          <button type="button" data-ordem="quedas" class="sc-ordem px-2 py-1 rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">Nº de quedas</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-[minmax(0,9rem)_1fr_5.5rem] sm:grid-cols-[minmax(0,13rem)_1fr_6.5rem] gap-3 px-2 text-[11px] text-slate-500">
+        <span>Dispositivo</span>
+        <div class="flex justify-between"><span>−24h</span><span>−12h</span><span>agora</span></div>
+        <span class="text-right">Offline</span>
+      </div>
+      <ul id="sc-lista" class="scroll flex-1 overflow-y-auto mt-1 divide-y divide-slate-700/50"></ul>
     </section>
 
     <section class="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
@@ -283,46 +296,120 @@
     window.addEventListener('prefs', render);
     auto(sync);
 
-    // Carregar Gráfico de Logística / Indisponibilidade via Chart.js
-    async function carregarGraficoLogistica() {
-      try {
-        const res = await fetch('/api/disponibilidade-diaria');
-        const data = await res.json();
-        
-        if (data.status === "success" && data.dispositivos && data.dispositivos.length > 0) {
-          const labels = data.dispositivos.map(d => d.entity_id);
-          const valores = data.dispositivos.map(d => d.tempo_offline_horas);
+    // ---------- Saúde de Conexão (24h) ----------
+    const SC = {
+      urlDiaria: '/api/disponibilidade-diaria',
+      urlHistorico: id => `/api/historico-30dias?entity_id=${encodeURIComponent(id)}`,
+      estadosOffline: ['unavailable'],   // adicione 'unknown' para contar como queda
+      maxComHistorico: 20,
+      refreshMs: 60000,
+      cacheMs: 60000,
+    };
+    const scCache = new Map();
+    let scOrdem = 'tempo', scItens = [];
 
-          const ctx = document.getElementById('graficoIndisponibilidade').getContext('2d');
-          new Chart(ctx, {
-            type: 'bar',
-            data: {
-              labels: labels,
-              datasets: [{
-                label: 'Tempo Offline (Horas)',
-                data: valores,
-                backgroundColor: 'rgba(239, 68, 68, 0.5)',
-                borderColor: 'rgb(239, 68, 68)',
-                borderWidth: 1,
-                borderRadius: 4
-              }]
-            },
-            options: {
-              responsive: true,
-              scales: {
-                y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
-                x: { ticks: { color: '#94a3b8' }, grid: { display: false } }
-              },
-              plugins: { legend: { labels: { color: '#f8fafc' } } }
-            }
-          });
-        }
+    // < 1 min: "45s" · < 1 h: "1m 12s" · >= 1 h: "2h 15m"
+    function fmtDuracao(min) {
+      const t = Math.round(min * 60);
+      if (t <= 0) return '0s';
+      if (t < 60) return `${t}s`;
+      if (t < 3600) { const m = Math.floor(t / 60), s = t % 60; return s ? `${m}m ${String(s).padStart(2, '0')}s` : `${m}m`; }
+      const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
+      return m ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
+    }
+    const fmtHora = ts => new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    function calcularJanela(historico, t0, t1) {
+      const ev = [...historico].sort((a, b) => a.timestamp - b.timestamp);
+      const off = s => SC.estadosOffline.includes(s);
+      let i = 0, estado = 'on';
+      for (; i < ev.length && ev[i].timestamp <= t0; i++) estado = ev[i].state;
+      const segs = []; let quedas = 0, cursor = t0;
+      const fechar = fim => { if (off(estado) && fim > cursor) segs.push({ ini: cursor, fim }); };
+      for (; i < ev.length; i++) {
+        const e = ev[i];
+        if (e.timestamp > t1) break;
+        fechar(e.timestamp);
+        if (off(e.state) && !off(estado)) quedas++;
+        cursor = e.timestamp; estado = e.state;
+      }
+      fechar(t1);
+      return { segs, quedas };
+    }
+
+    async function historicoCache(id) {
+      const c = scCache.get(id);
+      if (c && Date.now() - c.t < SC.cacheMs) return c.dados;
+      const r = await fetch(SC.urlHistorico(id));
+      if (!r.ok) throw new Error(r.status);
+      const dados = (await r.json()).historico || [];
+      scCache.set(id, { t: Date.now(), dados });
+      return dados;
+    }
+
+    function scLinha(d) {
+      const t0 = d.t1 - 86400;
+      const faixa = d.segs
+        ? `<div class="relative h-4 rounded bg-emerald-500/25 overflow-hidden">${d.segs.map(s => {
+            const left = Math.min(((s.ini - t0) / 86400) * 100, 99.4);
+            const w = Math.max(((s.fim - s.ini) / 86400) * 100, 0.6);
+            return `<span class="absolute inset-y-0 bg-red-500 rounded-[1px]" style="left:${left.toFixed(2)}%;width:${w.toFixed(2)}%" title="${fmtHora(s.ini)} → ${fmtHora(s.fim)} (${fmtDuracao((s.fim - s.ini) / 60)})"></span>`;
+          }).join('')}</div>`
+        : '<div class="h-4 rounded bg-slate-700/60 animate-pulse"></div>';
+      const q = d.quedas == null ? '' : `<span class="ml-1 text-[11px] ${d.quedas > 2 ? 'text-amber-400' : 'text-slate-500'}">${d.quedas}×</span>`;
+      return `<li><button type="button" data-entity="${esc(d.entity_id)}" title="${esc(d.entity_id)} — clique para ver 30 dias"
+        class="w-full grid grid-cols-[minmax(0,9rem)_1fr_5.5rem] sm:grid-cols-[minmax(0,13rem)_1fr_6.5rem] gap-3 items-center px-2 py-1.5 text-left rounded hover:bg-slate-700/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
+        <span class="truncate text-xs text-slate-200">${esc(d.entity_id)}</span>${faixa}
+        <span class="text-right text-xs tabular-nums text-slate-100">${fmtDuracao(d.minutos)}${q}</span></button></li>`;
+    }
+
+    function scRender() {
+      const lista = [...scItens].sort((a, b) => scOrdem === 'quedas'
+        ? (b.quedas ?? -1) - (a.quedas ?? -1) || b.minutos - a.minutos
+        : b.minutos - a.minutos);
+      $('sc-lista').innerHTML = lista.length ? lista.map(scLinha).join('')
+        : '<li class="h-full flex items-center justify-center py-10 text-sm text-emerald-400">Nenhuma indisponibilidade nas últimas 24h</li>';
+      const total = scItens.reduce((n, d) => n + (d.quedas || 0), 0);
+      $('sc-resumo').textContent = lista.length
+        ? `${lista.length} dispositivo${lista.length > 1 ? 's' : ''} com queda` + (scItens.some(d => d.quedas != null) ? ` · ${total} quedas no total` : '')
+        : 'Tudo estável';
+      document.querySelectorAll('.sc-ordem').forEach(b => {
+        const a = b.dataset.ordem === scOrdem;
+        b.classList.toggle('bg-indigo-600/30', a);
+        b.classList.toggle('border-indigo-500', a);
+        b.classList.toggle('border-slate-600', !a);
+        b.setAttribute('aria-pressed', a);
+      });
+    }
+
+    async function carregarSaudeConexao() {
+      try {
+        const j = await (await fetch(SC.urlDiaria)).json();
+        const t1 = Date.now() / 1000;
+        scItens = (j.dispositivos || []).filter(d => d.tempo_offline_minutos > 0)
+          .map(d => ({ entity_id: d.entity_id, minutos: d.tempo_offline_minutos, t1, segs: null, quedas: null }))
+          .sort((a, b) => b.minutos - a.minutos);
+        scRender();
+        await Promise.allSettled(scItens.slice(0, SC.maxComHistorico).map(async d => {
+          const { segs, quedas } = calcularJanela(await historicoCache(d.entity_id), t1 - 86400, t1);
+          d.segs = segs; d.quedas = quedas;
+        }));
+        scRender();
       } catch (e) {
-        console.error("Erro ao carregar gráfico de logística:", e);
+        console.error('Saúde de conexão:', e);
+        $('sc-resumo').textContent = 'Falha ao carregar dados';
       }
     }
 
-    carregarGraficoLogistica();
+    $('sc-lista').addEventListener('click', e => {
+      const b = e.target.closest('[data-entity]');
+      if (b) window.abrirModalHistorico(b.dataset.entity, b.dataset.entity);
+    });
+    document.querySelectorAll('.sc-ordem').forEach(b =>
+      b.addEventListener('click', () => { scOrdem = b.dataset.ordem; scRender(); }));
+
+    carregarSaudeConexao();
+    setInterval(carregarSaudeConexao, SC.refreshMs);
   </script>
 </body>
 </html>
