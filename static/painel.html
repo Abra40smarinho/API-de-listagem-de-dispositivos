@@ -327,10 +327,13 @@
     let scChart = null, scItens = [], scHoras = [], scOcorrencias = [];
 
     function fmtDuracao(segundos) {
-      const t = Math.round(segundos);
-      if (t <= 0) return '0s';
-      if (t < 60) return `${t}s`;
-      if (t < 3600) { const m = Math.floor(t / 60), s = t % 60; return s ? `${m}m ${s}s` : `${m}m`; }
+      const t = Number(segundos);
+      if (t <= 0.5) return '1s (micro-queda)';
+      if (t < 60) return `${Math.round(t)}s`;
+      if (t < 3600) { 
+        const m = Math.floor(t / 60), s = Math.round(t % 60); 
+        return s ? `${m}m ${s}s` : `${m}m`; 
+      }
       const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
       return m ? `${h}h ${m}m` : `${h}h`;
     }
