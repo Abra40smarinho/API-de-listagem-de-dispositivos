@@ -337,39 +337,53 @@
     const fmtDataHora = ts => new Date(ts * 1000).toLocaleString('pt-BR');
 
     function calcularJanela(historico, t0, t1) {
-      const ev = [...historico].sort((a, b) => a.timestamp - b.timestamp);
+      if (!Array.isArray(historico) || historico.length === 0) return { segs: [], quedas: [], reconexoes: [], eventosDet: [] };
+
+      // Garante que o histórico está ordenado do mais antigo para o mais recente
+      const ev = [...historico].sort((a, b) => Number(a.timestamp || a.last_updated_ts || 0) - Number(b.timestamp || b.last_updated_ts || 0));
       const off = s => SC.estadosOffline.includes(s);
-      let quedas = [], reconexoes = [], eventosDet = [];
+      
+      let quedas = [];
+      let reconexoes = [];
+      let eventosDet = [];
       let inicioQueda = null;
 
       ev.forEach(e => {
-        if (e.timestamp < t0 || e.timestamp > t1) return;
+        const ts = Number(e.timestamp || e.last_updated_ts || 0);
+        const st = String(e.state || '');
 
-        if (off(e.state) && inicioQueda === null) {
-          inicioQueda = e.timestamp;
-          quedas.push(e.timestamp);
-        } else if (!off(e.state) && inicioQueda !== null) {
-          const fimQueda = e.timestamp;
-          const duracao = fimQueda - inicioQueda;
-          
-          reconexoes.push(fimQueda);
-          eventosDet.push({
-            inicio: inicioQueda,
-            fim: fimQueda,
-            duracaoSeg: duracao,
-            tipo: 'Queda de rede / comunicação'
-          });
-          
-          inicioQueda = null;
+        if (ts < t0 || ts > t1) return;
+
+        if (off(st)) {
+          if (inicioQueda === null) {
+            inicioQueda = ts;
+            quedas.push(ts);
+          }
+        } else {
+          if (inicioQueda !== null) {
+            const fimQueda = ts;
+            const duracao = fimQueda - inicioQueda;
+            
+            reconexoes.push(fimQueda);
+            eventosDet.push({
+              inicio: inicioQueda,
+              fim: fimQueda,
+              duracaoSeg: duracao > 0 ? duracao : 1, // Garante pelo menos 1s se ocorreu no mesmo microssegundo
+              tipo: 'Queda de rede / comunicação'
+            });
+            
+            inicioQueda = null;
+          }
         }
       });
 
-      // Se o dispositivo ainda estiver offline no final da janela
+      // Se o dispositivo ficou offline e ainda não reconectou dentro da janela
       if (inicioQueda !== null) {
+        const duracaoAtual = t1 - inicioQueda;
         eventosDet.push({
           inicio: inicioQueda,
           fim: t1,
-          duracaoSeg: t1 - inicioQueda,
+          duracaoSeg: duracaoAtual > 0 ? duracaoAtual : 1,
           tipo: 'Queda de rede / comunicação (Em curso)'
         });
       }
