@@ -339,42 +339,43 @@
     function calcularJanela(historico, t0, t1) {
       const ev = [...historico].sort((a, b) => a.timestamp - b.timestamp);
       const off = s => SC.estadosOffline.includes(s);
-      let i = 0, estado = 'on';
-      for (; i < ev.length && ev[i].timestamp <= t0; i++) estado = ev[i].state;
-      const segs = [], quedas = [], reconexoes = [], eventosDet = [];
-      let cursor = t0;
-      
-      const fechar = (fim, motivo) => { 
-        if (off(estado) && fim > cursor) {
-          segs.push({ ini: cursor, fim });
-          eventosDet.push({
-            inicio: cursor,
-            fim: fim,
-            duracaoSeg: fim - cursor,
-            tipo: motivo || 'Queda de rede / comunicação'
-          });
-        }
-      };
+      let quedas = [], reconexoes = [], eventosDet = [];
+      let inicioQueda = null;
 
-      for (; i < ev.length; i++) {
-        const e = ev[i];
-        if (e.timestamp > t1) break;
-        
-        if (off(e.state) && !off(estado)) {
+      ev.forEach(e => {
+        if (e.timestamp < t0 || e.timestamp > t1) return;
+
+        if (off(e.state) && inicioQueda === null) {
+          inicioQueda = e.timestamp;
           quedas.push(e.timestamp);
-          cursor = e.timestamp;
+        } else if (!off(e.state) && inicioQueda !== null) {
+          const fimQueda = e.timestamp;
+          const duracao = fimQueda - inicioQueda;
+          
+          reconexoes.push(fimQueda);
+          eventosDet.push({
+            inicio: inicioQueda,
+            fim: fimQueda,
+            duracaoSeg: duracao,
+            tipo: 'Queda de rede / comunicação'
+          });
+          
+          inicioQueda = null;
         }
-        if (!off(e.state) && off(estado)) {
-          reconexoes.push(e.timestamp);
-          fechar(e.timestamp, 'Queda de rede / comunicação');
-          cursor = e.timestamp;
-        }
-        estado = e.state;
-      }
-      fechar(t1, 'Queda de rede / comunicação (Ativo)');
-      return { segs, quedas, reconexoes, eventosDet };
-    }
+      });
 
+      // Se o dispositivo ainda estiver offline no final da janela
+      if (inicioQueda !== null) {
+        eventosDet.push({
+          inicio: inicioQueda,
+          fim: t1,
+          duracaoSeg: t1 - inicioQueda,
+          tipo: 'Queda de rede / comunicação (Em curso)'
+        });
+      }
+
+      return { segs: [], quedas, reconexoes, eventosDet };
+    }
     async function historicoCache(id) {
       const c = scCache.get(id);
       if (c && Date.now() - c.t < SC.cacheMs) return c.dados;
