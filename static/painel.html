@@ -18,58 +18,70 @@
   <main class="max-w-[1400px] mx-auto px-4 py-4 space-y-4">
     <section id="metrics" class="grid grid-cols-2 md:grid-cols-5 gap-3"></section>
 
-    <!-- Saúde de Conexão (24h): barras empilhadas por hora + ranking por dispositivo -->
-    <section id="saude-conexao" class="bg-slate-800/60 border border-slate-700 rounded-xl p-3">
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <div class="min-w-0">
-          <h3 class="text-sm font-semibold text-slate-100">Saúde de conexão · 24h</h3>
-          <p id="sc-resumo" class="text-xs text-slate-400 truncate">Carregando…</p>
+    <!-- PAINEL DE DIAGNÓSTICO E LOGS DE OSCILAÇÃO (Estilo Foto 4) -->
+    <section class="bg-slate-800/60 border border-slate-700 rounded-xl p-4 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/60 pb-3">
+        <div>
+          <h3 class="text-base font-semibold text-slate-100">Diagnóstico de energia e internet (24h)</h3>
+          <p class="text-xs text-slate-400">Monitoramento analítico de quedas, reconexões e instabilidades extraídas do banco de dados.</p>
         </div>
-        <div class="flex flex-wrap items-center gap-2 text-xs">
-          <div id="sc-ordem-box" class="hidden items-center gap-1" role="group" aria-label="Ordenar por">
-            <button type="button" data-ordem="tempo" class="sc-ordem px-2 py-1 rounded-md border text-slate-300 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">Tempo offline</button>
-            <button type="button" data-ordem="quedas" class="sc-ordem px-2 py-1 rounded-md border text-slate-300 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">Nº de quedas</button>
-          </div>
-          <div class="flex rounded-lg overflow-hidden border border-slate-700" role="tablist">
-            <button type="button" role="tab" data-aba="hora" class="sc-aba px-3 py-1.5">Por hora</button>
-            <button type="button" role="tab" data-aba="disp" class="sc-aba px-3 py-1.5">Por dispositivo</button>
-          </div>
+        <button id="btnAtualizarSaude" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">↻ Atualizar Análise</button>
+      </div>
+
+      <!-- Cards de Resumo de Ocorrências (Estilo Foto 4) -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="bg-slate-900/80 border border-slate-700/80 rounded-xl p-3">
+          <p class="text-[11px] uppercase tracking-wide text-rose-400 font-semibold">Possível queda de energia / reinicialização</p>
+          <p id="stat-energia" class="text-2xl font-bold text-slate-100 mt-1">0</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">Múltiplos dispositivos afetados simultaneamente</p>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-700/80 rounded-xl p-3">
+          <p class="text-[11px] uppercase tracking-wide text-indigo-400 font-semibold">Queda de rede / comunicação</p>
+          <p id="stat-rede" class="text-2xl font-bold text-slate-100 mt-1">0</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">Falhas pontuais de conectividade</p>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-700/80 rounded-xl p-3">
+          <p class="text-[11px] uppercase tracking-wide text-cyan-400 font-semibold">Reconexões detectadas</p>
+          <p id="stat-reconexao" class="text-2xl font-bold text-slate-100 mt-1">0</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">Retornos bem-sucedidos ao estado online</p>
         </div>
       </div>
 
-      <!-- Aba: por hora -->
-      <div id="sc-view-hora" class="relative h-[190px]"><canvas id="sc-canvas"></canvas></div>
-
-      <!-- Aba: por dispositivo -->
-      <div id="sc-view-disp" class="hidden flex-col h-[190px]">
-        <div class="grid grid-cols-[minmax(0,9rem)_1fr_5.5rem] sm:grid-cols-[minmax(0,13rem)_1fr_6.5rem] gap-3 px-2 text-[11px] text-slate-500">
-          <span>Dispositivo</span>
-          <div class="flex justify-between"><span>−24h</span><span>−12h</span><span>agora</span></div>
-          <span class="text-right">Offline</span>
+      <!-- Gráfico por Hora -->
+      <div class="bg-slate-900/50 border border-slate-700/60 rounded-xl p-3">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-semibold text-slate-300">Distribuição de Eventos por Hora (24h)</span>
+          <span id="sc-resumo" class="text-xs text-slate-400">Carregando...</span>
         </div>
-        <ul id="sc-lista" class="scroll flex-1 overflow-y-auto mt-1 divide-y divide-slate-700/50"></ul>
+        <div class="relative h-[180px]"><canvas id="sc-canvas"></canvas></div>
       </div>
 
-      <details class="mt-2">
-        <summary class="cursor-pointer select-none text-xs text-slate-300 hover:text-white">Contagens por hora</summary>
-        <div class="scroll max-h-40 overflow-auto mt-1 border border-slate-700/60 rounded-lg">
+      <!-- Tabela de Logs de Eventos Recentes (Estilo Tabela da Foto 4) -->
+      <div class="space-y-2">
+        <div class="flex justify-between items-center">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Registro de Ocorrências e Reconexões</h4>
+          <span class="text-[11px] text-slate-500">Mostrando eventos detectados nas últimas 24h</span>
+        </div>
+        <div class="scroll max-h-60 overflow-y-auto border border-slate-700/60 rounded-lg bg-slate-900/80">
           <table class="w-full text-xs tabular-nums">
-            <thead class="text-[11px] text-slate-400">
-              <tr class="bg-slate-900">
-                <th class="px-2 py-1 text-left">Hora</th>
-                <th class="px-2 py-1 text-right">Energia</th>
-                <th class="px-2 py-1 text-right">Rede</th>
-                <th class="px-2 py-1 text-right">Reconexão</th>
-                <th class="px-2 py-1 text-right">Total</th>
+            <thead class="text-[11px] text-slate-400 bg-slate-900 sticky top-0">
+              <tr>
+                <th class="px-3 py-2 text-left">Início / Reconexão</th>
+                <th class="px-3 py-2 text-left">Dispositivo / Entidade</th>
+                <th class="px-3 py-2 text-left">Diagnóstico</th>
+                <th class="px-3 py-2 text-left">Duração Offline</th>
+                <th class="px-3 py-2 text-left">Evidência / Log</th>
               </tr>
             </thead>
-            <tbody id="sc-tabela" class="divide-y divide-slate-700/50"></tbody>
+            <tbody id="sc-tabela-logs" class="divide-y divide-slate-700/50">
+              <tr><td colspan="5" class="px-3 py-6 text-center text-slate-500">Carregando logs de eventos...</td></tr>
+            </tbody>
           </table>
         </div>
-        <p id="sc-nota" class="mt-1 text-[11px] text-slate-500"></p>
-      </details>
+      </div>
     </section>
 
+    <!-- Seção Principal de Dispositivos e Filtros -->
     <section class="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
       <div class="p-3 flex flex-wrap gap-2 items-center border-b border-slate-700">
         <input id="q" type="search" placeholder="Buscar nome, modelo ou entidade…" class="flex-1 min-w-[12rem] bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
@@ -77,16 +89,12 @@
         <select id="integ" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"></select>
         <select id="area" class="hidden bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"></select>
         
-        <!-- Botão de Sincronizar -->
         <button id="sync" class="bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-3 py-1.5">↻ Sincronizar agora</button>
-        
-        <!-- Novo Botão de Enviar para o Telegram -->
         <button id="btnTelegram" onclick="enviarAlertaTelegram()" class="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-3 py-1.5 flex items-center gap-1.5">
           <span>📤 Enviar Telegram</span>
         </button>
       </div>
       
-      <!-- Feedback visual discreto para o envio do Telegram -->
       <div id="telegramStatus" class="px-3 py-1 text-xs text-slate-400 hidden bg-slate-900/50 border-b border-slate-700/50"></div>
 
       <div class="scroll overflow-auto max-h-[calc(100vh-16rem)] min-h-[12rem]">
@@ -99,7 +107,7 @@
               <th class="px-3 py-2 text-left">Entidade (fora/total)</th>
               <th class="px-3 py-2 text-left hidden lg:table-cell">Tipo</th>
               <th class="px-3 py-2 text-left hidden md:table-cell">Cômodo</th>
-              <th class="px-3 py-2 text-left hidden sm:table-cell" title="Desde a primeira vez que o painel viu o dispositivo offline">Offline há</th>
+              <th class="px-3 py-2 text-left hidden sm:table-cell">Offline há</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -108,7 +116,6 @@
       <div id="foot" class="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-700"></div>
     </section>
   </main>
-
 
   <!-- Modal de histórico de 30 dias -->
   <div id="modalHistorico" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitulo">
@@ -210,25 +217,15 @@
       $('sync').disabled = false;
     }
 
-    // Função para disparar o envio do relatório para o Telegram
     window.enviarAlertaTelegram = async function() {
       const btn = $('btnTelegram');
       const statusDiv = $('telegramStatus');
-      
       btn.disabled = true;
       statusDiv.classList.remove('hidden');
       statusDiv.innerHTML = '<span class="text-cyan-400">⏳ Enviando relatório para o Telegram...</span>';
-
       try {
-        const response = await fetch('/api/notify?client_name=Central%20de%20Operações', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-
+        const response = await fetch('/api/notify?client_name=Central%20de%20Operações', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         const result = await response.json();
-        
         if (response.ok) {
           statusDiv.innerHTML = `<span class="text-emerald-400">✅ Relatório enviado com sucesso!</span>`;
         } else {
@@ -242,7 +239,6 @@
       }
     };
 
-    // Modal: consulta e exibe o histórico da entidade selecionada.
     window.abrirModalHistorico = async function(entityId, nomeDispositivo) {
       const modal = $('modalHistorico');
       const titulo = $('modalTitulo');
@@ -286,28 +282,10 @@
       }
     };
 
-    window.fecharModalHistorico = function() {
-      $('modalHistorico').classList.add('hidden');
-    };
+    window.fecharModalHistorico = function() { $('modalHistorico').classList.add('hidden'); };
     $('btnFecharHistorico').addEventListener('click', window.fecharModalHistorico);
-    $('modalHistorico').addEventListener('click', e => {
-      if (e.target === $('modalHistorico')) window.fecharModalHistorico();
-    });
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && !$('modalHistorico').classList.contains('hidden')) window.fecharModalHistorico();
-    });
-
-    // Compatibilidade: função de consulta também retorna os registros.
-    window.carregarHistorico30Dias = async function(entityId) {
-      try {
-        const response = await fetch(`/api/historico-30dias?entity_id=${encodeURIComponent(entityId)}`);
-        const dados = await response.json();
-        return response.ok && dados.status === 'success' ? dados.historico : [];
-      } catch (erro) {
-        console.error('Erro de rede ao buscar histórico:', erro);
-        return [];
-      }
-    };
+    $('modalHistorico').addEventListener('click', e => { if (e.target === $('modalHistorico')) window.fecharModalHistorico(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('modalHistorico').classList.contains('hidden')) window.fecharModalHistorico(); });
 
     $('q').oninput = render;
     $('integ').onchange = render;
@@ -329,55 +307,79 @@
     window.addEventListener('prefs', render);
     auto(sync);
 
-    // ---------- Saúde de Conexão (24h) ----------
+    // ---------- Lógica Analítica de Saúde e Ocorrências ----------
     const SC = {
       urlDiaria: '/api/disponibilidade-diaria',
       urlHistorico: id => `/api/historico-30dias?entity_id=${encodeURIComponent(id)}`,
-      estadosOffline: ['unavailable'],  // adicione 'unknown' para contar como queda
-      maxComHistorico: 40,              // quantos dispositivos (os piores) buscam histórico
-      energiaMinDispositivos: 3,        // >= N dispositivos caindo juntos => "possível queda de energia"
-      energiaJanelaSeg: 90,             // ...dentro desta janela (segundos)
+      estadosOffline: ['unavailable', 'unknown'],
+      maxComHistorico: 45,
+      energiaMinDispositivos: 3,
+      energiaJanelaSeg: 90,
       refreshMs: 60000,
       cacheMs: 30000,
     };
     const SC_SERIES = [
-      { key: 'energia',   label: 'Possível queda de energia / reinicialização', cor: '#fb7185' },
-      { key: 'rede',      label: 'Queda de rede / comunicação',                 cor: '#6b86e8' },
-      { key: 'reconexao', label: 'Reconexão detectada',                         cor: '#4aa8f0' },
+      { key: 'energia',   label: 'Queda de energia', cor: '#fb7185' },
+      { key: 'rede',      label: 'Queda de rede',    cor: '#8da2f0' },
+      { key: 'reconexao', label: 'Reconexão',        cor: '#4aa8f0' },
     ];
     const scCache = new Map();
-    let scChart = null, scAba = 'hora', scOrdem = 'tempo', scItens = [], scHoras = [], scTruncado = 0;
+    let scChart = null, scItens = [], scHoras = [], scOcorrencias = [];
 
-    // < 1 min: "45s" · < 1 h: "1m 12s" · >= 1 h: "2h 15m"
     function fmtDuracao(min) {
       const t = Math.round(min * 60);
       if (t <= 0) return '0s';
       if (t < 60) return `${t}s`;
-      if (t < 3600) { const m = Math.floor(t / 60), s = t % 60; return s ? `${m}m ${String(s).padStart(2, '0')}s` : `${m}m`; }
+      if (t < 3600) { const m = Math.floor(t / 60), s = t % 60; return s ? `${m}m ${s}s` : `${m}m`; }
       const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
-      return m ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
+      return m ? `${h}h ${m}m` : `${h}h`;
     }
-    const fmtHora = ts => new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const fmtDataHora = ts => new Date(ts * 1000).toLocaleString('pt-BR');
 
-    // Percorre as mudanças de estado dentro de [t0, t1] e devolve trechos offline, quedas e reconexões
     function calcularJanela(historico, t0, t1) {
       const ev = [...historico].sort((a, b) => a.timestamp - b.timestamp);
       const off = s => SC.estadosOffline.includes(s);
       let i = 0, estado = 'on';
       for (; i < ev.length && ev[i].timestamp <= t0; i++) estado = ev[i].state;
-      const segs = [], quedas = [], reconexoes = [];
-      let cursor = t0;
-      const fechar = fim => { if (off(estado) && fim > cursor) segs.push({ ini: cursor, fim }); };
+      const segs = [], quedas = [], reconexoes = [], eventosDet = [];
+      let cursor = t0, ultimaQuedaTs = null;
+      
+      const fechar = (fim, motivo) => { 
+        if (off(estado) && fim > cursor) {
+          segs.push({ ini: cursor, fim });
+          eventosDet.push({
+            inicio: cursor,
+            fim: fim,
+            duracaoMin: (fim - cursor) / 60,
+            tipo: motivo || 'Queda de rede / comunicação'
+          });
+        }
+      };
+
       for (; i < ev.length; i++) {
         const e = ev[i];
         if (e.timestamp > t1) break;
         fechar(e.timestamp);
-        if (off(e.state) && !off(estado)) quedas.push(e.timestamp);
-        if (!off(e.state) && off(estado)) reconexoes.push(e.timestamp);
+        if (off(e.state) && !off(estado)) {
+          quedas.push(e.timestamp);
+          ultimaQuedaTs = e.timestamp;
+        }
+        if (!off(e.state) && off(estado)) {
+          reconexoes.push(e.timestamp);
+          if (ultimaQuedaTs) {
+            eventosDet.push({
+              inicio: ultimaQuedaTs,
+              fim: e.timestamp,
+              duracaoMin: (e.timestamp - ultimaQuedaTs) / 60,
+              tipo: 'Reconexão detectada'
+            });
+            ultimaQuedaTs = null;
+          }
+        }
         cursor = e.timestamp; estado = e.state;
       }
       fechar(t1);
-      return { segs, quedas, reconexoes };
+      return { segs, quedas, reconexoes, eventosDet };
     }
 
     async function historicoCache(id) {
@@ -390,108 +392,74 @@
       return dados;
     }
 
-    // Agrupa em 24 faixas de 1h (a última é a hora atual)
     function scConsolidar(t1) {
       const ini = Math.floor(t1 / 3600) * 3600 - 23 * 3600;
       const horas = Array.from({ length: 24 }, (_, i) => ({ ini: ini + i * 3600, energia: 0, rede: 0, reconexao: 0 }));
       const add = (ts, k) => { const i = Math.floor((ts - ini) / 3600); if (i >= 0 && i < 24) horas[i][k]++; };
       const quedas = [];
+      let todasOcorrencias = [];
+
       scItens.forEach(d => {
         if (!d.hist) return;
         const j = calcularJanela(d.hist, ini, t1);
         j.quedas.forEach(ts => quedas.push({ ts, id: d.entity_id }));
         j.reconexoes.forEach(ts => add(ts, 'reconexao'));
+        j.eventosDet.forEach(ev => {
+          todasOcorrencias.push({
+            entity_id: d.entity_id,
+            inicio: ev.inicio,
+            fim: ev.fim,
+            duracao: ev.duracaoMin,
+            tipo: ev.tipo
+          });
+        });
       });
+
       quedas.forEach(q => {
         const ids = new Set(quedas.filter(o => Math.abs(o.ts - q.ts) <= SC.energiaJanelaSeg).map(o => o.id));
         add(q.ts, ids.size >= SC.energiaMinDispositivos ? 'energia' : 'rede');
       });
+
       scHoras = horas;
-    }
-
-    // ----- Renderização -----
-    function scRenderAbas() {
-      document.querySelectorAll('.sc-aba').forEach(b => {
-        const a = b.dataset.aba === scAba;
-        b.classList.toggle('bg-indigo-500', a); b.classList.toggle('text-white', a);
-        b.classList.toggle('bg-slate-900', !a); b.classList.toggle('text-slate-300', !a);
-        b.classList.toggle('hover:bg-slate-700', !a);
-        b.setAttribute('aria-selected', a);
-      });
-      const hora = scAba === 'hora';
-      $('sc-view-hora').classList.toggle('hidden', !hora);
-      $('sc-view-disp').classList.toggle('hidden', hora);
-      $('sc-view-disp').classList.toggle('flex', !hora);
-      $('sc-ordem-box').classList.toggle('hidden', hora);
-      $('sc-ordem-box').classList.toggle('flex', !hora);
-      document.querySelectorAll('.sc-ordem').forEach(b => {
-        const a = b.dataset.ordem === scOrdem;
-        b.classList.toggle('bg-indigo-600/30', a); b.classList.toggle('border-indigo-500', a);
-        b.classList.toggle('border-slate-600', !a);
-        b.setAttribute('aria-pressed', a);
-      });
-    }
-
-    function scLinha(d) {
-      const t0 = d.t1 - 86400;
-      const faixa = d.segs
-        ? `<div class="relative h-4 rounded bg-emerald-500/25 overflow-hidden">${d.segs.map(s => {
-            const left = Math.min(((s.ini - t0) / 86400) * 100, 99.4);
-            const w = Math.max(((s.fim - s.ini) / 86400) * 100, 0.6);
-            return `<span class="absolute inset-y-0 bg-red-500 rounded-[1px]" style="left:${left.toFixed(2)}%;width:${w.toFixed(2)}%" title="${fmtHora(s.ini)} → ${fmtHora(s.fim)} (${fmtDuracao((s.fim - s.ini) / 60)})"></span>`;
-          }).join('')}</div>`
-        : '<div class="h-4 rounded bg-slate-700/60 animate-pulse"></div>';
-      const q = d.quedas == null ? '' : `<span class="ml-1 text-[11px] ${d.quedas > 2 ? 'text-amber-400' : 'text-slate-500'}">${d.quedas}×</span>`;
-      return `<li><button type="button" data-entity="${esc(d.entity_id)}" title="${esc(d.entity_id)} — clique para ver 30 dias"
-        class="w-full grid grid-cols-[minmax(0,9rem)_1fr_5.5rem] sm:grid-cols-[minmax(0,13rem)_1fr_6.5rem] gap-3 items-center px-2 py-1.5 text-left rounded hover:bg-slate-700/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
-        <span class="truncate text-xs text-slate-200">${esc(d.entity_id)}</span>${faixa}
-        <span class="text-right text-xs tabular-nums text-slate-100">${fmtDuracao(d.minutos)}${q}</span></button></li>`;
-    }
-
-    function scRenderLista() {
-      const lista = [...scItens].sort((a, b) => scOrdem === 'quedas'
-        ? (b.quedas ?? -1) - (a.quedas ?? -1) || b.minutos - a.minutos
-        : b.minutos - a.minutos);
-      $('sc-lista').innerHTML = lista.length ? lista.map(scLinha).join('')
-        : '<li class="py-10 text-center text-sm text-emerald-400">Nenhuma indisponibilidade nas últimas 24h</li>';
+      scOcorrencias = todasOcorrencias.sort((a, b) => b.inicio - a.inicio);
     }
 
     function scRenderGrafico() {
-      if (!window.Chart) { $('sc-view-hora').innerHTML = '<p class="py-10 text-center text-sm text-slate-500">Chart.js não carregou.</p>'; return; }
-      const labels = scHoras.map(h => fmtHora(h.ini));
+      if (!window.Chart) return;
+      const labels = scHoras.map(h => new Date(h.ini * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
       const dados = SC_SERIES.map(s => scHoras.map(h => h[s.key]));
+      
+      const totalEnergia = scHoras.reduce((acc, h) => acc + h.energia, 0);
+      const totalRede = scHoras.reduce((acc, h) => acc + h.rede, 0);
+      const totalReconexao = scHoras.reduce((acc, h) => acc + h.reconexao, 0);
+
+      $('stat-energia').textContent = totalEnergia;
+      $('stat-rede').textContent = totalRede;
+      $('stat-reconexao').textContent = totalReconexao;
+
       if (!scChart) {
-        const eixo = '#94a3b8';
         scChart = new Chart($('sc-canvas'), {
           type: 'bar',
           data: {
             labels,
-            datasets: SC_SERIES.map((s, i) => ({ label: s.label, data: dados[i], backgroundColor: s.cor, borderWidth: 0, stack: 'ev', categoryPercentage: 0.92, barPercentage: 0.9 })),
+            datasets: SC_SERIES.map((s, i) => ({ label: s.label, data: dados[i], backgroundColor: s.cor, borderWidth: 0, stack: 'ev', categoryPercentage: 0.9, barPercentage: 0.9 })),
           },
           options: {
-            responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+            responsive: true, maintainAspectRatio: false, animation: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
-              legend: { position: 'top', labels: { color: eixo, boxWidth: 10, boxHeight: 10, padding: 12, font: { size: 11 } } },
+              legend: { position: 'top', labels: { color: '#94a3b8', boxWidth: 10, boxHeight: 10, padding: 10, font: { size: 11 } } },
               tooltip: {
                 backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1,
-                titleColor: '#e2e8f0', bodyColor: '#cbd5e1', footerColor: '#e2e8f0',
-                callbacks: {
-                  title: it => { const h = scHoras[it[0].dataIndex]; return `${fmtHora(h.ini)} – ${fmtHora(h.ini + 3600)}`; },
-                  footer: it => `Total: ${it.reduce((n, x) => n + x.parsed.y, 0)}`,
-                },
-              },
+                titleColor: '#e2e8f0', bodyColor: '#cbd5e1',
+                callbacks: { title: it => { const h = scHoras[it[0].dataIndex]; return `${new Date(h.ini*1000).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}`; } }
+              }
             },
             scales: {
-              x: { stacked: true, grid: { display: false }, ticks: { color: eixo, font: { size: 10 }, maxRotation: 0, autoSkip: true } },
-              y: {
-                stacked: true, beginAtZero: true,
-                ticks: { color: eixo, precision: 0, font: { size: 10 } },
-                grid: { color: 'rgba(203,213,225,.25)' },
-                title: { display: true, text: 'Eventos por hora', color: eixo, font: { size: 10 } },
-              },
-            },
-          },
+              x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 10 }, maxRotation: 0 } },
+              y: { stacked: true, beginAtZero: true, ticks: { color: '#94a3b8', precision: 0, font: { size: 10 } }, grid: { color: 'rgba(203,213,225,.1)' } }
+            }
+          }
         });
       } else {
         scChart.data.labels = labels;
@@ -500,65 +468,56 @@
       }
     }
 
-    function scRenderTabela() {
-      $('sc-tabela').innerHTML = scHoras.map(h => {
-        const tot = h.energia + h.rede + h.reconexao;
-        const c = (v, cor) => `<td class="px-2 py-1 text-right ${v ? '' : 'text-slate-600'}" ${v ? `style="color:${cor}"` : ''}>${v}</td>`;
-        return `<tr class="${tot ? '' : 'opacity-60'}"><td class="px-2 py-1 text-slate-300">${fmtHora(h.ini)}</td>${c(h.energia, '#fb7185')}${c(h.rede, '#8da2f0')}${c(h.reconexao, '#4aa8f0')}<td class="px-2 py-1 text-right text-slate-100">${tot}</td></tr>`;
+    function scRenderTabelaLogs() {
+      const tbody = $('sc-tabela-logs');
+      if (!scOcorrencias.length) {
+        tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-6 text-center text-emerald-400">Nenhum evento de instabilidade registrado nas últimas 24h.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = scOcorrencias.slice(0, 50).map(ev => {
+        let corBadge = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+        if (ev.tipo.includes('energia')) corBadge = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+        else if (ev.tipo.includes('rede')) corBadge = 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
+
+        return `
+          <tr class="hover:bg-slate-800/40 border-b border-slate-700/40">
+            <td class="px-3 py-2 text-slate-300 font-mono whitespace-nowrap">${fmtDataHora(ev.inicio)}</td>
+            <td class="px-3 py-2 text-cyan-300 font-mono"><button type="button" onclick="abrirModalHistorico('${esc(ev.entity_id)}', '${esc(ev.entity_id)}')" class="hover:underline">${esc(ev.entity_id)}</button></td>
+            <td class="px-3 py-2"><span class="px-2 py-0.5 rounded border text-[10px] font-medium ${corBadge}">${esc(ev.tipo)}</span></td>
+            <td class="px-3 py-2 text-slate-200 font-semibold">${fmtDuracao(ev.duracao)}</td>
+            <td class="px-3 py-2 text-slate-400 font-mono text-[11px]">Offline por ${fmtDuracao(ev.duracao)} · reconexão detectada</td>
+          </tr>
+        `;
       }).join('');
-      $('sc-nota').textContent = `“Possível queda de energia” = ${SC.energiaMinDispositivos}+ dispositivos caindo em até ${SC.energiaJanelaSeg}s (heurística). As demais quedas contam como rede/comunicação.`;
     }
 
     function scRender() {
-      const nq = scItens.reduce((n, d) => n + (d.quedas || 0), 0);
-      $('sc-resumo').textContent = scItens.length
-        ? `${scItens.length} dispositivo${scItens.length > 1 ? 's' : ''} com queda · ${nq} queda${nq === 1 ? '' : 's'}` + (scTruncado ? ` · analisando os ${SC.maxComHistorico} piores` : '')
-        : 'Tudo estável nas últimas 24h';
-      scRenderAbas();
-      scRenderLista();
+      $('sc-resumo').textContent = `${scOcorrencias.length} eventos mapeados nas últimas 24h`;
       scRenderGrafico();
-      scRenderTabela();
+      scRenderTabelaLogs();
     }
 
     async function carregarSaudeConexao() {
       try {
         const j = await (await fetch(SC.urlDiaria)).json();
         const t1 = Date.now() / 1000;
-        const ant = new Map(scItens.map(d => [d.entity_id, d]));
-        scItens = (j.dispositivos || []).filter(d => d.tempo_offline_minutos > 0)
-          .map(d => {
-            const o = ant.get(d.entity_id) || {};
-            return { entity_id: d.entity_id, minutos: d.tempo_offline_minutos, t1, hist: o.hist || null, segs: o.segs || null, quedas: o.quedas ?? null };
-          })
-          .sort((a, b) => b.minutos - a.minutos);
-        scTruncado = Math.max(0, scItens.length - SC.maxComHistorico);
+        scItens = (j.dispositivos || []).map(d => ({ entity_id: d.entity_id, minutos: d.tempo_offline_minutos, t1, hist: null }));
+        
         scConsolidar(t1);
         scRender();
+
         await Promise.allSettled(scItens.slice(0, SC.maxComHistorico).map(async d => {
           d.hist = await historicoCache(d.entity_id);
-          const w = calcularJanela(d.hist, t1 - 86400, t1);
-          d.segs = w.segs; d.quedas = w.quedas.length;
         }));
+
         scConsolidar(t1);
         scRender();
       } catch (e) {
-        console.error('Saúde de conexão:', e);
-        $('sc-resumo').textContent = 'Falha ao carregar dados';
+        console.error('Erro ao carregar diagnóstico:', e);
       }
     }
 
-    // ----- Interações -----
-    $('sc-lista').addEventListener('click', e => {
-      const b = e.target.closest('[data-entity]');
-      if (b) window.abrirModalHistorico(b.dataset.entity, b.dataset.entity);
-    });
-    document.querySelectorAll('.sc-aba').forEach(b => b.addEventListener('click', () => {
-      scAba = b.dataset.aba; scRenderAbas();
-      if (scAba === 'hora' && scChart) scChart.resize();
-    }));
-    document.querySelectorAll('.sc-ordem').forEach(b => b.addEventListener('click', () => {
-      scOrdem = b.dataset.ordem; scRenderAbas(); scRenderLista();
-    }));
+    $('btnAtualizarSaude').onclick = carregarSaudeConexao;
 
     carregarSaudeConexao();
     setInterval(carregarSaudeConexao, SC.refreshMs);
