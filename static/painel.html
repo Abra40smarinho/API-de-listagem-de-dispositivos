@@ -18,6 +18,12 @@
   <main class="max-w-[1400px] mx-auto px-4 py-4 space-y-4">
     <section id="metrics" class="grid grid-cols-2 md:grid-cols-5 gap-3"></section>
 
+    <!-- Gráfico de Logística de Indisponibilidade -->
+    <section class="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
+      <h3 class="text-sm font-semibold text-slate-200 mb-3">Logística de Indisponibilidade (Últimas 24h - em Horas)</h3>
+      <canvas id="graficoIndisponibilidade" height="80"></canvas>
+    </section>
+
     <section class="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
       <div class="p-3 flex flex-wrap gap-2 items-center border-b border-slate-700">
         <input id="q" type="search" placeholder="Buscar nome, modelo ou entidade…" class="flex-1 min-w-[12rem] bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
@@ -277,20 +283,46 @@
     window.addEventListener('prefs', render);
     auto(sync);
 
-    async function carregarPainelOffline() {
+    // Carregar Gráfico de Logística / Indisponibilidade via Chart.js
+    async function carregarGraficoLogistica() {
       try {
-          const response = await fetch('/api/dispositivos/offline-historico');
-          const data = await response.json();
-          
-          if (data.status === "success") {
-              console.log("Dispositivos offline nas últimas 24h:", data.devices_offline);
-          }
-      } catch (error) {
-          console.error("Erro ao carregar dados do painel:", error);
+        const res = await fetch('/api/disponibilidade-diaria');
+        const data = await res.json();
+        
+        if (data.status === "success" && data.dispositivos && data.dispositivos.length > 0) {
+          const labels = data.dispositivos.map(d => d.entity_id);
+          const valores = data.dispositivos.map(d => d.tempo_offline_horas);
+
+          const ctx = document.getElementById('graficoIndisponibilidade').getContext('2d');
+          new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: 'Tempo Offline (Horas)',
+                data: valores,
+                backgroundColor: 'rgba(239, 68, 68, 0.5)',
+                borderColor: 'rgb(239, 68, 68)',
+                borderWidth: 1,
+                borderRadius: 4
+              }]
+            },
+            options: {
+              responsive: true,
+              scales: {
+                y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+                x: { ticks: { color: '#94a3b8' }, grid: { display: false } }
+              },
+              plugins: { legend: { labels: { color: '#f8fafc' } } }
+            }
+          });
+        }
+      } catch (e) {
+        console.error("Erro ao carregar gráfico de logística:", e);
       }
     }
 
-    carregarPainelOffline();
+    carregarGraficoLogistica();
   </script>
 </body>
 </html>
