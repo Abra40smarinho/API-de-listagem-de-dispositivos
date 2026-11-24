@@ -98,48 +98,34 @@ def limpar_registros_antigos():
         print(f"Erro ao limpar registros antigos do banco: {e}")
 
 def enviar_relatorio_matinal_8am():
-    """Executado todo dia: calcula o acumulado dos últimos 2 dias e envia o resumo para o Telegram."""
-    print("Gerando relatório matinal de indisponibilidade (período de 2 dias)...")
+    """Busca o relatório consolidado de indisponibilidade na API e envia para o Telegram."""
+    print("Gerando relatório matinal detalhado...")
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Modificado de '-24 hours' para '-2 days'
-    cursor.execute('''
-        SELECT name, entity_id, COUNT(*) as total_registros
-        FROM historico_offline
-        WHERE datetime(timestamp) >= datetime('now', '-2 days')
-        GROUP BY entity_id
-        ORDER BY total_registros DESC
-    ''')
-    
-    resultados = cursor.fetchall()
-    conn.close()
-    
-    mensagem = f"☀️ *Relatório de Indisponibilidade - 2 Dias* (Central de Operações)\n\n"
-    
-    if not resultados:
-        mensagem += "✅ Nenhum registro de instabilidade nos últimos 2 dias! Dispositivos 100% estáveis."
-    else:
-        mensagem += "⚠️ *Dispositivos com registros offline no período (últimos 2 dias):*\n\n"
-        for name, entity_id, registros in resultados:
-            # Cada registro equivale a 1 varredura horária capturada pelo notifier
-            mensagem += f"• *{name}*: Registrado offline em *{registros}* varreduras\n"
-            
-    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": mensagem,
-            "parse_mode": "Markdown"
-        }
-        try:
+    try:
+        # Consome a nova rota da API interna
+        response = requests.get("http://ha-devices-api:8000/api/disponibilidade-diaria", timeout=10)
+        data = response.json()
+        
+        dispositivos = data.get("dispositivos", [])
+        
+        mensagem = f"☀️ *Relatório Matinal de Indisponibilidade* (24h)\n\n"
+        
+        if not dispositivos:
+            mensagem += "✅ Perfeita estabilidade! Nenhum dispositivo ficou indisponível nas últimas 24 horas."
+        else:
+            mensagem += "⚠️ *Dispositivos que perderam conexão no período:*\n\n"
+            for dev in dispositivos:
+                tempo_str = f"{dev['tempo_offline_horas']} horas" if dev['tempo_offline_horas'] >= 1 else f"{dev['tempo_offline_minutos']} minutos"
+                mensagem += f"• `{dev['entity_id']}` ficou offline por *{tempo_str}*\n"
+                
+        if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+            url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "Markdown"}
             requests.post(url_telegram, json=payload, timeout=10)
-            print("Relatório de 2 dias enviado com sucesso para o Telegram.")
-        except Exception as e:
-            print(f"Erro ao enviar mensagem para el Telegram: {e}")
-    else:
-        print("Credenciais do Telegram não configuradas no notifier.")
+            print("Relatório matinal enviado com sucesso!")
+            
+    except Exception as e:
+        print(f"Erro ao gerar relatório matinal para o Telegram: {e}")
 if __name__ == "__main__":
     print("Iniciando container de notificação e histórico...")
     inicializar_banco()
