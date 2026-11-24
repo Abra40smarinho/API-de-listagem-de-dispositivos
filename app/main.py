@@ -323,7 +323,62 @@ def historico_dispositivos_30dias(entity_id: str = Query(..., description="Ex: s
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao consultar o banco do Home Assistant: {e}")
-
+@app.get("/api/disponibilidade-diaria", dependencies=[Depends(check_key)])
+def relatorio_disponibilidade_diaria():
+    """Calcula o tempo offline de cada dispositivo nas últimas 24h direto do home-assistant_v2.db"""
+    if not os.path.exists(HA_DB_PATH):
+        raise HTTPException(status_code=404, detail="Banco do Home Assistant não encontrado.")
+    
+    try:
+        conn = sqlite3.connect(f"file:{HA_DB_PATH}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        query = """
+            SELECT 
+                sm.entity_id,
+                SUM(
+                    CASE 
+                        WHEN s.state IN ('unavailable', 'unknown') THEN 
+                            COALESCE(
+                                (SELECT s2.last_updated_ts FROM states s2 
+                                 WHERE s2.metadata_id = s.metadata_id 
+                                   AND s2.last_updated_ts > s.last_updated_ts 
+                                 ORDER BY s2.last_updated_ts ASC LIMIT 1), 
+                                strftime('%s', 'now')
+                            ) - s.last_updated_ts
+                        ELSE 0 
+                    END
+                ) AS total_segundos
+            FROM states s
+            JOIN states_meta sm ON s.metadata_id = sm.metadata_id
+            WHERE s.last_updated_ts >= (strftime('%s', 'now') - 86400)
+              AND s.state IN ('unavailable', 'unknown')
+            GROUP BY sm.entity_id
+            ORDER BY total_segundos DESC
+        """
+        
+        cursor.execute(query)
+        linhas = cursor.fetchall()
+        conn.close()
+        
+        resultado = []
+        for linha in linhas:
+            segundos = linha["total_segundos"] or 0
+            minutos = round(segundos / 60, 1)
+            horas = round(segundos / 3600, 2)
+            
+            if segundos > 0: # Apenas dispositivos que tiveram instabilidade
+                resultado.append({
+                    "entity_id": linha["entity_id"],
+                    "tempo_offline_minutos": minutos,
+                    "tempo_offline_horas": horas
+                })
+                
+        return {"status": "success", "periodo": "ultimas_24h", "dispositivos": resultado}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao calcular disponibilidade: {e}")
 @app.get("/health")
 async def health():
     return {"status": "ok"}
