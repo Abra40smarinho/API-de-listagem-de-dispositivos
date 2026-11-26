@@ -97,35 +97,90 @@ def limpar_registros_antigos():
     except Exception as e:
         print(f"Erro ao limpar registros antigos do banco: {e}")
 
+def formatar_duracao(minutos_totais):
+    """Converte minutos em formato legível (ex: 1h 25m ou 8.3 min)."""
+    if minutos_totais >= 60:
+        horas = int(minutos_totais // 60)
+        mins = int(minutos_totais % 60)
+        return f"{horas}h {mins}m"
+    return f"{minutos_totais:.1f} min"
+
 def enviar_relatorio_matinal_8am():
-    """Busca o relatório consolidado de indisponibilidade na API e envia para o Telegram."""
-    print("Gerando relatório matinal detalhado...")
+    """Envia relatório consolidado por dispositivo (quedas 24h + offline contínuo)."""
+    print("Gerando relatório matinal consolidado...")
+    
+    # 1. Busca os dispositivos que estão OFFLINE AGORA (contínuos > 24h/48h) direto da API
+    headers = {"x-api-key": API_KEY} if API_KEY else {}
+    dispositivos_continuos = []
+    nomes_continuos = set()
     
     try:
-        # Consome a nova rota da API interna
-        response = requests.get("http://ha-devices-api:8000/api/disponibilidade-diaria", timeout=10)
-        data = response.json()
-        
-        dispositivos = data.get("dispositivos", [])
-        
-        mensagem = f"☀️ *Relatório Matinal de Indisponibilidade* (24h)\n\n"
-        
-        if not dispositivos:
-            mensagem += "✅ Perfeita estabilidade! Nenhum dispositivo ficou indisponível nas últimas 24 horas."
-        else:
-            mensagem += "⚠️ *Dispositivos que perderam conexão no período:*\n\n"
-            for dev in dispositivos:
-                tempo_str = f"{dev['tempo_offline_horas']} horas" if dev['tempo_offline_horas'] >= 1 else f"{dev['tempo_offline_minutos']} minutos"
-                mensagem += f"• `{dev['entity_id']}` ficou offline por *{tempo_str}*\n"
-                
-        if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-            url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "Markdown"}
+        resp = requests.get(API_URL, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            dados_api = resp.json().get("devices", [])
+            for dev in dados_api:
+                nome = dev.get("name")
+                offline_ha = dev.get("offline_since") or dev.get("offline_duration") or "mais de 24h"
+                dispositivos_continuos.append((nome, offline_ha))
+                nomes_continuos.add(nome.lower())
+    except Exception as e:
+        print(f"Erro ao consultar API para offline contínuo: {e}")
+
+    # 2. Busca o histórico de quedas pontuais nas últimas 24h no SQLite
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Agrupa pelo nome do dispositivo para não repetir switch/light/select do mesmo aparelho
+    # Cada registro na varredura de 5 min equivale a 5 minutos offline (ou ajuste conforme sua tabela de eventos)
+    cursor.execute('''
+        SELECT name, COUNT(*) * 5.0 as minutos_offline
+        FROM historico_offline
+        WHERE datetime(timestamp) >= datetime('now', '-24 hours')
+        GROUP BY name
+        ORDER BY minutos_offline DESC
+    ''')
+    
+    quedas_24h = cursor.fetchall()
+    conn.close()
+
+    # 3. Monta a mensagem do Telegram
+    mensagem = "☀️ *Relatório Matinal de Disponibilidade (24h)*\n\n"
+    
+    # Bloco A: Instabilidades / Quedas nas últimas 24h (excluindo os que já estão mortos há dias)
+    instabilidades_filtradas = [
+        (nome, mins) for nome, mins in quedas_24h 
+        if nome.lower() not in nomes_continuos
+    ]
+    
+    if instabilidades_filtradas:
+        mensagem += "⚠️ *Dispositivos com instabilidade nas últimas 24h:*\n"
+        for nome, mins in instabilidades_filtradas:
+            mensagem += f"• *{nome}*: indisponível por *{formatar_duracao(mins)}*\n"
+        mensagem += "\n"
+    else:
+        mensagem += "✅ *Nenhuma queda pontual nas últimas 24h.*\n\n"
+
+    # Bloco B: Dispositivos offline continuamente (> 24h / 48h)
+    if dispositivos_continuos:
+        mensagem += "🔴 *Dispositivos offline continuamente (> 24h/48h):*\n"
+        for nome, tempo in dispositivos_continuos:
+            mensagem += f"• *{nome}* (offline há {tempo})\n"
+    else:
+        mensagem += "🟢 *Nenhum dispositivo offline de longa duração.*"
+
+    # Envio para o Telegram
+    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": mensagem,
+            "parse_mode": "Markdown"
+        }
+        try:
             requests.post(url_telegram, json=payload, timeout=10)
             print("Relatório matinal enviado com sucesso!")
-            
-    except Exception as e:
-        print(f"Erro ao gerar relatório matinal para o Telegram: {e}")
+        except Exception as e:
+            print(f"Erro ao enviar Telegram: {e}")
 if __name__ == "__main__":
     print("Iniciando container de notificação e histórico...")
     inicializar_banco()
