@@ -181,23 +181,86 @@ def enviar_relatorio_matinal_8am():
             print("Relatório matinal enviado com sucesso!")
         except Exception as e:
             print(f"Erro ao enviar Telegram: {e}")
+# 1. Adicione as categorias de erro logo no topo do arquivo
+CATEGORIAS_ERRO = {
+    "autenticacao_nuvem": {
+        "titulo": "🔐 Erro de Autenticação na Nuvem",
+        "padroes": [r"401 Unauthorized", r"Invalid Credentials", r"Authentication failed", r"token.*expired"]
+    },
+    "rate_limit": {
+        "titulo": "⏳ Limite de Requisições Excedido (Rate Limit)",
+        "padroes": [r"Too Many Requests", r"Rate Limit Exceeded", r"429", r"quota.*exceeded"]
+    },
+    "falha_setup": {
+        "titulo": "⚙️ Falha de Configuração ou Setup",
+        "padroes": [r"Setup failed for\s+[\w_]+", r"Error setting up entry"]
+    }
+}
+
+# 2. Crie uma função para inspecionar novas linhas do log do HA
+LOG_HA_PATH = os.environ.get("LOG_HA_PATH", "/config/home-assistant.log")
+ultimo_tamanho_log = 0
+
+def verificar_novos_erros_ha():
+    global ultimo_tamanho_log
+    if not os.path.exists(LOG_HA_PATH):
+        return
+
+    try:
+        tamanho_atual = os.path.getsize(LOG_HA_PATH)
+        if tamanho_atual < ultimo_tamanho_log:
+            # O log foi rotacionado
+            ultimo_tamanho_log = 0
+
+        with open(LOG_HA_PATH, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(ultimo_tamanho_log)
+            novas_linhas = f.readlines()
+            ultimo_tamanho_log = f.tell()
+
+        for linha in novas_linhas:
+            linha_str = linha.strip()
+            for chave, info in CATEGORIAS_ERRO.items():
+                for padrao in info["padroes"]:
+                    if re.search(padrao, linha_str, re.IGNORECASE):
+                        # Dispara o alerta imediato no Telegram
+                        enviar_alerta_erro_telegram(info["titulo"], linha_str)
+                        break
+    except Exception as e:
+        print(f"Erro ao ler log do HA: {e}")
+
+def enviar_alerta_erro_telegram(titulo, detalhe):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    mensagem = (
+        f"🚨 *ALERTA DE SISTEMA (HOME ASSISTANT)*\n\n"
+        f"*{titulo}*\n"
+        f"• *Detalhe:* `{detalhe[:300]}`"
+    )
+    url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    try:
+        requests.post(url_telegram, json={"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "Markdown"}, timeout=10)
+    except Exception as e:
+        print(f"Erro ao enviar alerta de erro para o Telegram: {e}")
+
 if __name__ == "__main__":
     print("Iniciando container de notificação e histórico...")
     inicializar_banco()
     
-    # Loop de execução contínua com controle nativo (substitui dependência externa de schedule)
     while True:
         agora = datetime.now()
         
-        # Executa a varredura a cada 1 hora (no minuto 0)
+        # 1. Verifica erros nos logs do HA a cada ciclo de 30 segundos
+        verificar_novos_erros_ha()
+        
+        # 2. Executa a varredura a cada 1 hora (no minuto 0)
         if agora.minute == 0:
             varredura_horaria()
             limpar_registros_antigos()
-            time.sleep(60) # Pausa de 1 min para evitar repetição na mesma hora
+            time.sleep(60) 
             
-        # Executa o relatório diário exatamente às 08:00
-        if agora.hour == 16 and agora.minute == 57:
+        # 3. Executa o relatório diário
+        if agora.hour == 8 and agora.minute == 0:
             enviar_relatorio_matinal_8am()
             time.sleep(60)
             
-        time.sleep(30) # Checa a cada 30 segundos
+        time.sleep(30)
