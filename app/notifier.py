@@ -198,7 +198,7 @@ CATEGORIAS_ERRO = {
 }
 
 # 2. Crie uma função para inspecionar novas linhas do log do HA
-LOG_HA_PATH = os.environ.get("LOG_HA_PATH", "/config/home-assistant.log")
+LOG_HA_PATH = os.environ.get("LOG_HA_PATH", "/homeassistant/home-assistant.log")
 ultimo_tamanho_log = 0
 
 def verificar_novos_erros_ha():
