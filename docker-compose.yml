@@ -28,15 +28,16 @@ services:
       - ha-devices-api
     volumes:
       - dados_db_totais:/app/data
-      - /homeassistant:/homeassistant:ro   # <--- ADICIONADO: Permite ler os logs do HA
+      - /homeassistant:/homeassistant:ro
     command: ["python", "app/notifier.py"]
     environment:
+      - CLIENT_NAME=${CLIENT_NAME:-NOMECLIENTEEXEMPLO}  # <--- Identificador do cliente
       - API_URL=http://ha-devices-api:8000/devices/offline
       - API_KEY=${API_KEY}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
       - DB_PATH=/app/data/tuya_historico.db
-      - LOG_HA_PATH=/homeassistant/home-assistant.log  # <--- ADICIONADO: Caminho do log dentro do container
+      - LOG_HA_PATH=/homeassistant/home-assistant.log
 
 volumes:
   dados_db_totais:
