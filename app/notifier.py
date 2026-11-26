@@ -6,6 +6,7 @@ import time
 import requests
 
 # Configurações de Ambiente
+CLIENT_NAME = os.environ.get("CLIENT_NAME", "NOMECLIENTEEXEMPLO").upper()
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 API_URL = os.environ.get(
@@ -15,10 +16,10 @@ API_KEY = os.environ.get("API_KEY", "")
 DB_PATH = os.environ.get("DB_PATH", "/app/data/tuya_historico.db")
 LOG_HA_PATH = os.environ.get("LOG_HA_PATH", "/homeassistant/home-assistant.log")
 
-# Mapeamento de categorias de erro do Home Assistant
+# Mapeamento completo de categorias de erro do Home Assistant
 CATEGORIAS_ERRO = {
     "autenticacao_nuvem": {
-        "titulo": "🔐 Erro de Autenticação na Nuvem",
+        "titulo": "🔐 ERRO DE AUTENTICAÇÃO NA NUVEM",
         "padroes": [
             r"401 Unauthorized",
             r"Invalid Credentials",
@@ -28,7 +29,7 @@ CATEGORIAS_ERRO = {
         ],
     },
     "rate_limit": {
-        "titulo": "⏳ Limite de Requisições Excedido (Rate Limit)",
+        "titulo": "⏳ LIMITE DE REQUISIÇÕES EXCEDIDO (RATE LIMIT)",
         "padroes": [
             r"Too Many Requests",
             r"Rate Limit Exceeded",
@@ -38,17 +39,41 @@ CATEGORIAS_ERRO = {
         ],
     },
     "falha_setup": {
-        "titulo": "⚙️ Falha de Configuração ou Setup",
+        "titulo": "⚙️ FALHA DE CONFIGURAÇÃO OU SETUP",
         "padroes": [
             r"Setup failed for\s+[\w_]+",
             r"Error setting up entry",
             r"Unable to prepare setup for platform",
         ],
     },
+    "conexao_local": {
+        "titulo": "🌐 ERRO DE CONEXÃO / TIMEOUT LOCAL",
+        "padroes": [
+            r"TimeoutError",
+            r"Cannot connect to host",
+            r"Connection refused",
+            r"ClientConnectorError",
+        ],
+    },
+    "banco_dados": {
+        "titulo": "💾 ERRO DE BANCO DE DADOS (SQLITE)",
+        "padroes": [
+            r"database is locked",
+            r"Disk I/O Error",
+            r"sqlite3\.OperationalError",
+        ],
+    },
+    "dependencia_modulo": {
+        "titulo": "📦 ERRO DE DEPENDÊNCIA PYTHON (IMPORT)",
+        "padroes": [
+            r"ModuleNotFoundError",
+            r"ImportError",
+            r"No module named",
+        ],
+    },
 }
 
-# CORREÇÃO: Inicializa apontando para o final do arquivo atual
-# para evitar ler logs antigos e disparar spam no Telegram ao reiniciar o container.
+# Inicializa apontando para o final do arquivo atual para não enviar logs antigos ao reiniciar
 if os.path.exists(LOG_HA_PATH):
   ultimo_tamanho_log = os.path.getsize(LOG_HA_PATH)
 else:
@@ -57,13 +82,12 @@ else:
 
 def inicializar_banco():
   """Garante que a pasta e a tabela de histórico offline existem no SQLite."""
-  print(f"Tentando abrir o banco de dados em: {DB_PATH}")
+  print(f"[{CLIENT_NAME}] Tentando abrir o banco de dados em: {DB_PATH}")
 
   diretorio = os.path.dirname(DB_PATH)
   if diretorio and not os.path.exists(diretorio):
     try:
       os.makedirs(diretorio, exist_ok=True)
-      print(f"Diretório criado com sucesso: {diretorio}")
     except Exception as e:
       print(f"Aviso ao criar diretório: {e}")
 
@@ -80,7 +104,7 @@ def inicializar_banco():
     """)
   conn.commit()
   conn.close()
-  print("Banco de dados inicializado com sucesso!")
+  print(f"[{CLIENT_NAME}] Banco de dados inicializado com sucesso!")
 
 
 def verificar_novos_erros_ha():
@@ -92,11 +116,10 @@ def verificar_novos_erros_ha():
   try:
     tamanho_atual = os.path.getsize(LOG_HA_PATH)
     if tamanho_atual < ultimo_tamanho_log:
-      # O log foi rotacionado pelo Home Assistant
       ultimo_tamanho_log = 0
 
     if tamanho_atual == ultimo_tamanho_log:
-      return  # Sem novidades no log
+      return
 
     with open(LOG_HA_PATH, "r", encoding="utf-8", errors="replace") as f:
       f.seek(ultimo_tamanho_log)
@@ -105,6 +128,9 @@ def verificar_novos_erros_ha():
 
     for linha in novas_linhas:
       linha_str = linha.strip()
+      if not linha_str:
+        continue
+
       for chave, info in CATEGORIAS_ERRO.items():
         for padrao in info["padroes"]:
           if re.search(padrao, linha_str, re.IGNORECASE):
@@ -117,11 +143,17 @@ def verificar_novos_erros_ha():
 def enviar_alerta_erro_telegram(titulo, detalhe):
   if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
     return
+
+  # Limpa eventuais crases do log original para não quebrar o bloco de código do Markdown
+  detalhe_limpo = detalhe[:350].replace("`", "'")
+
   mensagem = (
-      f"🚨 *ALERTA DE SISTEMA (HOME ASSISTANT)*\n\n"
-      f"*{titulo}*\n"
-      f"• *Detalhe:* \n`{detalhe[:300]}`"
+      f"🚨 *ALERTA HOME ASSISTANT DE {CLIENT_NAME}*\n\n"
+      f"*{titulo.upper()}*\n"
+      f"- Detalhe:\n"
+      f"`{detalhe_limpo}`"
   )
+
   url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
   try:
     requests.post(
@@ -140,7 +172,10 @@ def enviar_alerta_erro_telegram(titulo, detalhe):
 def varredura_horaria():
   """Executado a cada 1 hora: coleta o status atual e salva no SQLite."""
   agora = datetime.now(timezone.utc).isoformat()
-  print(f"[{agora}] Iniciando varredura horária de dispositivos...")
+  print(
+      f"[{agora}] [{CLIENT_NAME}] Iniciando varredura horária de"
+      " dispositivos..."
+  )
 
   headers = {"x-api-key": API_KEY} if API_KEY else {}
 
@@ -203,7 +238,7 @@ def formatar_duracao(minutos_totais):
 
 
 def enviar_relatorio_matinal_8am():
-  print("Gerando relatório matinal consolidado...")
+  print(f"[{CLIENT_NAME}] Gerando relatório matinal consolidado...")
   headers = {"x-api-key": API_KEY} if API_KEY else {}
   dispositivos_continuos = []
   nomes_continuos = set()
@@ -236,7 +271,9 @@ def enviar_relatorio_matinal_8am():
   quedas_24h = cursor.fetchall()
   conn.close()
 
-  mensagem = "☀️ *Relatório Matinal de Disponibilidade (24h)*\n\n"
+  mensagem = (
+      f"☀️ *Relatório Matinal - {CLIENT_NAME} (24h)*\n\n"
+  )
   instabilidades_filtradas = [
       (nome, mins)
       for nome, mins in quedas_24h
@@ -273,10 +310,7 @@ def enviar_relatorio_matinal_8am():
 
 
 if __name__ == "__main__":
-  print(
-      "Iniciando container de notificação, histórico e monitoramento de"
-      " logs..."
-  )
+  print(f"Iniciando container de notificação para o cliente: {CLIENT_NAME}...")
   inicializar_banco()
 
   while True:
@@ -296,5 +330,4 @@ if __name__ == "__main__":
       enviar_relatorio_matinal_8am()
       time.sleep(60)
 
-    # Pausa de 30 segundos entre cada verificação do loop
     time.sleep(30)
