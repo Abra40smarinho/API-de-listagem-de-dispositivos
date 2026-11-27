@@ -307,12 +307,12 @@
     window.addEventListener('prefs', render);
     auto(sync);
 
-    // ---------- Lógica Analítica de Saúde e Ocorrências ----------
+    // ---------- Lógica Analítica de Saúde e Ocorrências (Corrigida) ----------
     const SC = {
       urlDiaria: '/api/disponibilidade-diaria',
       urlHistorico: id => `/api/historico-30dias?entity_id=${encodeURIComponent(id)}`,
       estadosOffline: ['unavailable', 'unknown'],
-      maxComHistorico: 45,
+      maxComHistorico: 200, // Aumentado para não cortar dispositivos silenciosamente
       energiaMinDispositivos: 3,
       energiaJanelaSeg: 90,
       refreshMs: 60000,
@@ -342,23 +342,42 @@
     function calcularJanela(historico, t0, t1) {
       if (!Array.isArray(historico) || historico.length === 0) return { segs: [], quedas: [], reconexoes: [], eventosDet: [] };
 
-      // Garante que o histórico está ordenado do mais antigo para o mais recente
       const ev = [...historico].sort((a, b) => Number(a.timestamp || a.last_updated_ts || 0) - Number(b.timestamp || b.last_updated_ts || 0));
       const off = s => SC.estadosOffline.includes(s);
       
       let quedas = [];
       let reconexoes = [];
       let eventosDet = [];
+      
+      // Identifica o estado inicial com base no último evento anterior a t0, se houver
+      let idxInicio = 0;
+      let emQuedaInicial = false;
       let inicioQueda = null;
 
-      ev.forEach(e => {
+      while (idxInicio < ev.length && Number(ev[idxInicio].timestamp || ev[idxInicio].last_updated_ts || 0) < t0) {
+        if (off(String(ev[idxInicio].state || ''))) {
+          emQuedaInicial = true;
+          inicioQueda = t0; // Considera o início da janela caso estivesse offline antes
+        } else {
+          emQuedaInicial = false;
+          inicioQueda = null;
+        }
+        idxInicio++;
+      }
+
+      if (emQuedaInicial) {
+        quedas.push(t0);
+      }
+
+      for (let i = idxInicio; i < ev.length; i++) {
+        const e = ev[i];
         const ts = Number(e.timestamp || e.last_updated_ts || 0);
         const st = String(e.state || '');
 
-        if (ts < t0 || ts > t1) return;
+        if (ts > t1) break;
 
         if (off(st)) {
-          if (inicioQueda === null) {
+          if (inicioQue da === null) {
             inicioQueda = ts;
             quedas.push(ts);
           }
@@ -371,16 +390,15 @@
             eventosDet.push({
               inicio: inicioQueda,
               fim: fimQueda,
-              duracaoSeg: duracao > 0 ? duracao : 1, // Garante pelo menos 1s se ocorreu no mesmo microssegundo
+              duracaoSeg: duracao > 0 ? duracao : 1,
               tipo: 'Queda de rede / comunicação'
             });
             
             inicioQueda = null;
           }
         }
-      });
+      }
 
-      // Se o dispositivo ficou offline e ainda não reconectou dentro da janela
       if (inicioQueda !== null) {
         const duracaoAtual = t1 - inicioQueda;
         eventosDet.push({
@@ -393,6 +411,7 @@
 
       return { segs: [], quedas, reconexoes, eventosDet };
     }
+
     async function historicoCache(id) {
       const c = scCache.get(id);
       if (c && Date.now() - c.t < SC.cacheMs) return c.dados;
@@ -426,57 +445,30 @@
         });
       });
 
+      // Mapeia quais quedas fazem parte de um evento em massa (energia)
+      const idsPorTimestamp = new Map();
       quedas.forEach(q => {
-        const ids = new Set(quedas.filter(o => Math.abs(o.ts - q.ts) <= SC.energiaJanelaSeg).map(o => o.id));
-        add(q.ts, ids.size >= SC.energiaMinDispositivos ? 'energia' : 'rede');
+        const bucket = Math.floor(q.ts / SC.energiaJanelaSeg);
+        if (!idsPorTimestamp.has(bucket)) idsPorTimestamp.set(bucket, new Set());
+        idsPorTimestamp.get(bucket).add(q.id);
+      });
+
+      quedas.forEach(q => {
+        const bucket = Math.floor(q.ts / SC.energiaJanelaSeg);
+        const totalSimultaneos = idsPorTimestamp.get(bucket)?.size || 0;
+        const tipoQueda = totalSimultaneos >= SC.energiaMinDispositivos ? 'energia' : 'rede';
+        
+        add(q.ts, tipoQueda);
+
+        // Atualiza o tipo correspondente na lista detalhada de ocorrências
+        const matchEv = todasOcorrencias.find(ev => Math.abs(ev.inicio - q.ts) < 5 && ev.entity_id === q.id);
+        if (matchEv) {
+          matchEv.tipo = tipoQueda === 'energia' ? 'Possível queda de energia' : 'Queda de rede / comunicação';
+        }
       });
 
       scHoras = horas;
       scOcorrencias = todasOcorrencias.sort((a, b) => b.inicio - a.inicio);
-    }
-
-    function scRenderGrafico() {
-      if (!window.Chart) return;
-      const labels = scHoras.map(h => new Date(h.ini * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-      const dados = SC_SERIES.map(s => scHoras.map(h => h[s.key]));
-      
-      const totalEnergia = scHoras.reduce((acc, h) => acc + h.energia, 0);
-      const totalRede = scHoras.reduce((acc, h) => acc + h.rede, 0);
-      const totalReconexao = scHoras.reduce((acc, h) => acc + h.reconexao, 0);
-
-      $('stat-energia').textContent = totalEnergia;
-      $('stat-rede').textContent = totalRede;
-      $('stat-reconexao').textContent = totalReconexao;
-
-      if (!scChart) {
-        scChart = new Chart($('sc-canvas'), {
-          type: 'bar',
-          data: {
-            labels,
-            datasets: SC_SERIES.map((s, i) => ({ label: s.label, data: dados[i], backgroundColor: s.cor, borderWidth: 0, stack: 'ev', categoryPercentage: 0.9, barPercentage: 0.9 })),
-          },
-          options: {
-            responsive: true, maintainAspectRatio: false, animation: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-              legend: { position: 'top', labels: { color: '#94a3b8', boxWidth: 10, boxHeight: 10, padding: 10, font: { size: 11 } } },
-              tooltip: {
-                backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1,
-                titleColor: '#e2e8f0', bodyColor: '#cbd5e1',
-                callbacks: { title: it => { const h = scHoras[it[0].dataIndex]; return `${new Date(h.ini*1000).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}`; } }
-              }
-            },
-            scales: {
-              x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 10 }, maxRotation: 0 } },
-              y: { stacked: true, beginAtZero: true, ticks: { color: '#94a3b8', precision: 0, font: { size: 10 } }, grid: { color: 'rgba(203,213,225,.1)' } }
-            }
-          }
-        });
-      } else {
-        scChart.data.labels = labels;
-        scChart.data.datasets.forEach((ds, i) => { ds.data = dados[i]; });
-        scChart.update();
-      }
     }
 
     function scRenderTabelaLogs() {
@@ -490,48 +482,20 @@
         if (ev.tipo.includes('energia')) corBadge = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
         else if (ev.tipo.includes('rede')) corBadge = 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
 
+        const emCurso = ev.tipo.includes('Em curso');
+        const textoEvidencia = emCurso ? `Offline há ${fmtDuracao(ev.duracao)} · aguardando reconexão` : `Offline por ${fmtDuracao(ev.duracao)} · reconexão detectada`;
+
         return `
           <tr class="hover:bg-slate-800/40 border-b border-slate-700/40">
             <td class="px-3 py-2 text-slate-300 font-mono whitespace-nowrap">${fmtDataHora(ev.inicio)}</td>
             <td class="px-3 py-2 text-cyan-300 font-mono"><button type="button" onclick="abrirModalHistorico('${esc(ev.entity_id)}', '${esc(ev.entity_id)}')" class="hover:underline">${esc(ev.entity_id)}</button></td>
             <td class="px-3 py-2"><span class="px-2 py-0.5 rounded border text-[10px] font-medium ${corBadge}">${esc(ev.tipo)}</span></td>
             <td class="px-3 py-2 text-slate-200 font-semibold">${fmtDuracao(ev.duracao)}</td>
-            <td class="px-3 py-2 text-slate-400 font-mono text-[11px]">Offline por ${fmtDuracao(ev.duracao)} · reconexão detectada</td>
+            <td class="px-3 py-2 text-slate-400 font-mono text-[11px]">${textoEvidencia}</td>
           </tr>
         `;
       }).join('');
     }
-
-    function scRender() {
-      $('sc-resumo').textContent = `${scOcorrencias.length} eventos mapeados nas últimas 24h`;
-      scRenderGrafico();
-      scRenderTabelaLogs();
-    }
-
-    async function carregarSaudeConexao() {
-      try {
-        const j = await (await fetch(SC.urlDiaria)).json();
-        const t1 = Date.now() / 1000;
-        scItens = (j.dispositivos || []).map(d => ({ entity_id: d.entity_id, minutos: d.tempo_offline_minutos, t1, hist: null }));
-        
-        scConsolidar(t1);
-        scRender();
-
-        await Promise.allSettled(scItens.slice(0, SC.maxComHistorico).map(async d => {
-          d.hist = await historicoCache(d.entity_id);
-        }));
-
-        scConsolidar(t1);
-        scRender();
-      } catch (e) {
-        console.error('Erro ao carregar diagnóstico:', e);
-      }
-    }
-
-    $('btnAtualizarSaude').onclick = carregarSaudeConexao;
-
-    carregarSaudeConexao();
-    setInterval(carregarSaudeConexao, SC.refreshMs);
   </script>
 </body>
 </html>
