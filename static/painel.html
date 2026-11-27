@@ -410,7 +410,36 @@
 
       return { segs: [], quedas, reconexoes, eventosDet };
     }
+    async function carregarSaudeConexao() {
+      try {
+        const res = await fetch(SC.urlDiaria);
+        if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`);
+        const j = await res.json();
+        
+        const t1 = Date.now() / 1000;
+        scItens = (j.dispositivos || []).map(d => ({ entity_id: d.entity_id, minutos: d.tempo_offline_minutos, t1, hist: null }));
+        
+        scConsolidar(t1);
+        scRender();
 
+        // Busca o histórico de cada entidade em segundo plano
+        await Promise.allSettled(scItens.slice(0, SC.maxComHistorico).map(async d => {
+          try {
+            d.hist = await historicoCache(d.entity_id);
+          } catch (err) {
+            console.warn(`Não foi possível carregar histórico para ${d.entity_id}:`, err);
+          }
+        }));
+
+        scConsolidar(t1);
+        scRender();
+      } catch (e) {
+        console.error('Erro ao carregar diagnóstico:', e);
+        $('sc-resumo').textContent = 'Erro ao carregar dados de saúde.';
+        $('sc-tabela-logs').innerHTML = `<tr><td colspan="5" class="px-3 py-6 text-center text-red-400">Falha ao buscar /api/disponibilidade-diaria. Verifique o console.</td></tr>`;
+      }
+    }
+    
     async function historicoCache(id) {
       const c = scCache.get(id);
       if (c && Date.now() - c.t < SC.cacheMs) return c.dados;
