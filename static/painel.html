@@ -307,108 +307,160 @@
     window.addEventListener('prefs', render);
     auto(sync);
 
-    // ---------- Lógica Analítica de Saúde e Ocorrências (Integrada com SQLite Tuya) ----------
+    // ---------- Lógica Analítica de Saúde e Ocorrências (SQLite Tuya) ----------
     const SC = {
       urlDiaria: '/api/disponibilidade-diaria',
+      intervaloPollingSeg: 300, // 5 minutos (ajuste para 3600 se o notifier rodar a cada 1h)
+      energiaMinDispositivos: 3,
+      energiaJanelaSeg: 120,
       refreshMs: 60000,
     };
+
     const SC_SERIES = [
-      { key: 'energia',   label: 'Possível Queda de Energia', cor: '#fb7185' },
-      { key: 'rede',      label: 'Queda de Rede / Comunicação',    cor: '#8da2f0' },
+      { key: 'energia',   label: 'Queda de energia', cor: '#fb7185' },
+      { key: 'rede',      label: 'Queda de rede',    cor: '#8da2f0' },
       { key: 'reconexao', label: 'Reconexão',        cor: '#4aa8f0' },
     ];
+
     let scChart = null, scHoras = [], scOcorrencias = [];
 
     function fmtDuracao(segundos) {
-      const t = Number(segundos);
-      if (t <= 0) return '1s';
-      if (t < 60) return `${Math.round(t)}s`;
-      if (t < 3600) { 
-        const m = Math.floor(t / 60), s = Math.round(t % 60); 
-        return s ? `${m}m ${s}s` : `${m}m`; 
+      const t = Math.max(1, Math.round(Number(segundos)));
+      if (t < 60) return `${t}s`;
+      if (t < 3600) {
+        const m = Math.floor(t / 60), s = t % 60;
+        return s ? `${m}m ${s}s` : `${m}m`;
       }
       const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
       return m ? `${h}h ${m}m` : `${h}h`;
     }
-    const fmtDataHora = tsStr => {
-      if (!tsStr) return '—';
-      const d = new Date(tsStr);
-      return isNaN(d.getTime()) ? tsStr : d.toLocaleString('pt-BR');
-    };
 
-    function scProcessarEventos(eventos) {
-      const t1 = Date.now();
-      const ini = Math.floor(t1 / 1000 / 3600) * 3600 - 23 * 3600;
-      
-      // Cria as 24 barras das últimas horas
-      const horas = Array.from({ length: 24 }, (_, i) => ({ ini: ini + i * 3600, energia: 0, rede: 0, reconexao: 0 }));
-      const add = (tsSec, k) => { 
-        const i = Math.floor((tsSec - ini) / 3600); 
-        if (i >= 0 && i < 24) horas[i][k]++; 
+    const fmtDataHora = tsSec => new Date(tsSec * 1000).toLocaleString('pt-BR');
+
+    function scConsolidarEventosTuya(eventosBrutos) {
+      const t1 = Math.floor(Date.now() / 1000);
+      const ini = Math.floor(t1 / 3600) * 3600 - 23 * 3600;
+      const horas = Array.from({ length: 24 }, (_, i) => ({
+        ini: ini + i * 3600,
+        energia: 0,
+        rede: 0,
+        reconexao: 0,
+      }));
+
+      const addHora = (tsSec, chave) => {
+        const idx = Math.floor((tsSec - ini) / 3600);
+        if (idx >= 0 && idx < 24) horas[idx][chave]++;
       };
 
-      let todasOcorrencias = [];
-      let totalEnergia = 0;
-      let totalRede = 0;
-
-      eventos.forEach(ev => {
+      // Agrupa registros por dispositivo para juntar polls consecutivos numa mesma queda
+      const porDispositivo = new Map();
+      eventosBrutos.forEach(ev => {
         const tsSec = Math.floor(new Date(ev.timestamp).getTime() / 1000);
-        const duracao = ev.duracao_seg || 300; // Padrão 5 min do polling
-        const isEnergia = (ev.tipo || '').toLowerCase().includes('energia') || (ev.tipo || '').includes('2 entidades');
+        if (isNaN(tsSec) || tsSec < ini) return;
+        const chave = ev.name || ev.entity_id;
+        if (!porDispositivo.has(chave)) porDispositivo.set(chave, []);
+        porDispositivo.get(chave).push({ ts: tsSec, status: ev.status || '' });
+      });
 
-        if (isEnergia) {
-          totalEnergia++;
-          add(tsSec, 'energia');
-        } else {
-          totalRede++;
-          add(tsSec, 'rede');
-        }
+      const ocorrencias = [];
+      const toleranciaAgrupamento = SC.intervaloPollingSeg * 1.5;
 
-        todasOcorrencias.push({
-          entity_id: ev.entity_id,
-          inicio: tsSec,
-          duracao: duracao,
-          tipo: isEnergia ? 'Possível queda de energia' : 'Queda de rede / comunicação'
+      porDispositivo.forEach((lista, nomeDisp) => {
+        lista.sort((a, b) => a.ts - b.ts);
+        let blocoAtual = null;
+
+        lista.forEach(item => {
+          if (!blocoAtual) {
+            blocoAtual = { inicio: item.ts, ultimoTs: item.ts, status: item.status };
+          } else if (item.ts - blocoAtual.ultimoTs <= toleranciaAgrupamento) {
+            blocoAtual.ultimoTs = item.ts;
+          } else {
+            ocorrencias.push({ entity_id: nomeDisp, ...blocoAtual });
+            blocoAtual = { inicio: item.ts, ultimoTs: item.ts, status: item.status };
+          }
         });
+        if (blocoAtual) ocorrencias.push({ entity_id: nomeDisp, ...blocoAtual });
+      });
+
+      // Calcula duração, classifica (energia vs rede) e detecta se já reconectou
+      ocorrencias.forEach(oc => {
+        const fimEstimado = oc.ultimoTs + SC.intervaloPollingSeg;
+        const emCurso = (t1 - oc.ultimoTs) <= toleranciaAgrupamento;
+        oc.fim = emCurso ? t1 : fimEstimado;
+        oc.duracao = Math.max(SC.intervaloPollingSeg, oc.fim - oc.inicio);
+        oc.emCurso = emCurso;
+
+        // Verifica quantos dispositivos caíram na mesma janela de tempo
+        const simultaneos = new Set(
+          ocorrencias
+            .filter(o => Math.abs(o.inicio - oc.inicio) <= SC.energiaJanelaSeg)
+            .map(o => o.entity_id)
+        );
+
+        const isEnergia = simultaneos.size >= SC.energiaMinDispositivos;
+        oc.tipo = isEnergia
+          ? 'Possível queda de energia'
+          : (emCurso ? 'Queda de rede / comunicação (Em curso)' : 'Queda de rede / comunicação');
+
+        addHora(oc.inicio, isEnergia ? 'energia' : 'rede');
+        if (!emCurso) {
+          addHora(oc.fim, 'reconexao');
+        }
       });
 
       scHoras = horas;
-      scOcorrencias = todasOcorrencias.sort((a, b) => b.inicio - a.inicio);
+      scOcorrencias = ocorrencias.sort((a, b) => b.inicio - a.inicio);
 
-      // Atualiza os contadores dos cards superiores
-      $('stat-energia').textContent = totalEnergia;
-      $('stat-rede').textContent = totalRede;
-      $('stat-reconexao').textContent = scOcorrencias.length;
+      $('stat-energia').textContent = scHoras.reduce((acc, h) => acc + h.energia, 0);
+      $('stat-rede').textContent = scHoras.reduce((acc, h) => acc + h.rede, 0);
+      $('stat-reconexao').textContent = scHoras.reduce((acc, h) => acc + h.reconexao, 0);
     }
 
     function scRenderGrafico() {
       if (!window.Chart) return;
-      const labels = scHoras.map(h => new Date(h.ini * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-      const dados = SC_SERIES.map(s => scHoras.map(h => h[s.key] || 0));
+      const labels = scHoras.map(h =>
+        new Date(h.ini * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      );
+      const dados = SC_SERIES.map(s => scHoras.map(h => h[s.key]));
 
       if (!scChart) {
         scChart = new Chart($('sc-canvas'), {
           type: 'bar',
           data: {
             labels,
-            datasets: SC_SERIES.map((s, i) => ({ label: s.label, data: dados[i], backgroundColor: s.cor, borderWidth: 0, stack: 'ev', categoryPercentage: 0.9, barPercentage: 0.9 })),
+            datasets: SC_SERIES.map((s, i) => ({
+              label: s.label,
+              data: dados[i],
+              backgroundColor: s.cor,
+              borderWidth: 0,
+              stack: 'ev',
+              categoryPercentage: 0.9,
+              barPercentage: 0.9,
+            })),
           },
           options: {
-            responsive: true, maintainAspectRatio: false, animation: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
-              legend: { position: 'top', labels: { color: '#94a3b8', boxWidth: 10, boxHeight: 10, padding: 10, font: { size: 11 } } },
+              legend: {
+                position: 'top',
+                labels: { color: '#94a3b8', boxWidth: 10, boxHeight: 10, padding: 10, font: { size: 11 } },
+              },
               tooltip: {
-                backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1,
-                titleColor: '#e2e8f0', bodyColor: '#cbd5e1',
-                callbacks: { title: it => { const h = scHoras[it[0].dataIndex]; return `${new Date(h.ini*1000).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}`; } }
-              }
+                backgroundColor: '#0f172a',
+                borderColor: '#334155',
+                borderWidth: 1,
+                titleColor: '#e2e8f0',
+                bodyColor: '#cbd5e1',
+              },
             },
             scales: {
               x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 10 }, maxRotation: 0 } },
-              y: { stacked: true, beginAtZero: true, ticks: { color: '#94a3b8', precision: 0, font: { size: 10 } }, grid: { color: 'rgba(203,213,225,.1)' } }
-            }
-          }
+              y: { stacked: true, beginAtZero: true, ticks: { color: '#94a3b8', precision: 0, font: { size: 10 } }, grid: { color: 'rgba(203,213,225,.1)' } },
+            },
+          },
         });
       } else {
         scChart.data.labels = labels;
@@ -427,13 +479,17 @@
         let corBadge = 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
         if (ev.tipo.includes('energia')) corBadge = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
 
+        const textoEvidencia = ev.emCurso
+          ? `Offline há ${fmtDuracao(ev.duracao)} · aguardando reconexão`
+          : `Offline por ${fmtDuracao(ev.duracao)} · reconexão detectada`;
+
         return `
           <tr class="hover:bg-slate-800/40 border-b border-slate-700/40">
-            <td class="px-3 py-2 text-slate-300 font-mono whitespace-nowrap">${fmtDataHora(ev.inicio * 1000)}</td>
+            <td class="px-3 py-2 text-slate-300 font-mono whitespace-nowrap">${fmtDataHora(ev.inicio)}</td>
             <td class="px-3 py-2 text-cyan-300 font-mono">${esc(ev.entity_id)}</td>
             <td class="px-3 py-2"><span class="px-2 py-0.5 rounded border text-[10px] font-medium ${corBadge}">${esc(ev.tipo)}</span></td>
             <td class="px-3 py-2 text-slate-200 font-semibold">${fmtDuracao(ev.duracao)}</td>
-            <td class="px-3 py-2 text-slate-400 font-mono text-[11px]">Indisponível por ${fmtDuracao(ev.duracao)}</td>
+            <td class="px-3 py-2 text-slate-400 font-mono text-[11px]">${textoEvidencia}</td>
           </tr>
         `;
       }).join('');
@@ -445,18 +501,16 @@
         const res = await fetch(SC.urlDiaria);
         if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`);
         const j = await res.json();
-        
-        const eventos = j.eventos || [];
-        scProcessarEventos(eventos);
-        
+
+        scConsolidarEventosTuya(j.eventos || []);
         scRenderGrafico();
         scRenderTabelaLogs();
-        
+
         $('sc-resumo').textContent = `${scOcorrencias.length} eventos mapeados nas últimas 24h`;
       } catch (e) {
-        console.error('Erro ao carregar diagnóstico de saúde:', e);
+        console.error('Erro ao carregar diagnóstico:', e);
         $('sc-resumo').textContent = 'Erro ao carregar dados';
-        $('sc-tabela-logs').innerHTML = `<tr><td colspan="5" class="px-3 py-6 text-center text-red-400">Erro ao carregar o diagnóstico analítico da Tuya.</td></tr>`;
+        $('sc-tabela-logs').innerHTML = `<tr><td colspan="5" class="px-3 py-6 text-center text-red-400">Erro ao carregar o diagnóstico analítico.</td></tr>`;
       }
     }
 
