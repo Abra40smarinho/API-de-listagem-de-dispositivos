@@ -349,7 +349,6 @@
       let reconexoes = [];
       let eventosDet = [];
       
-      // Identifica o estado inicial com base no último evento anterior a t0, se houver
       let idxInicio = 0;
       let emQuedaInicial = false;
       let inicioQueda = null;
@@ -357,7 +356,7 @@
       while (idxInicio < ev.length && Number(ev[idxInicio].timestamp || ev[idxInicio].last_updated_ts || 0) < t0) {
         if (off(String(ev[idxInicio].state || ''))) {
           emQuedaInicial = true;
-          inicioQueda = t0; // Considera o início da janela caso estivesse offline antes
+          inicioQueda = t0;
         } else {
           emQuedaInicial = false;
           inicioQueda = null;
@@ -377,7 +376,7 @@
         if (ts > t1) break;
 
         if (off(st)) {
-          if (inicioQue da === null) {
+          if (inicioQueda === null) { // <-- Corrigido o espaço em "inicioQueda"
             inicioQueda = ts;
             quedas.push(ts);
           }
