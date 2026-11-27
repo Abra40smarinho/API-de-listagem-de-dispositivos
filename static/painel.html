@@ -1,4 +1,313 @@
-// ---------- Lógica Analítica de Saúde e Ocorrências (Integrada com SQLite Tuya) ----------
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Monitor Home Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    body { background: radial-gradient(1200px 500px at 50% -10%, #1e1b4b55, transparent), #0f172a; }
+    thead th { position: sticky; top: 0; z-index: 1; }
+    .scroll::-webkit-scrollbar { width: 8px; height: 8px }
+    .scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 8px }
+  </style>
+</head>
+<body class="text-slate-200 min-h-screen">
+  <div id="nav"></div>
+  <main class="max-w-[1400px] mx-auto px-4 py-4 space-y-4">
+    <section id="metrics" class="grid grid-cols-2 md:grid-cols-5 gap-3"></section>
+
+    <!-- PAINEL DE DIAGNÓSTICO E LOGS DE OSCILAÇÃO -->
+    <section class="bg-slate-800/60 border border-slate-700 rounded-xl p-4 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/60 pb-3">
+        <div>
+          <h3 class="text-base font-semibold text-slate-100">Diagnóstico de energia e internet (24h)</h3>
+          <p class="text-xs text-slate-400">Monitoramento analítico de quedas, reconexões e instabilidades extraídas do banco de dados.</p>
+        </div>
+        <button id="btnAtualizarSaude" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">↻ Atualizar Análise</button>
+      </div>
+
+      <!-- Cards de Resumo de Ocorrências -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="bg-slate-900/80 border border-slate-700/80 rounded-xl p-3">
+          <p class="text-[11px] uppercase tracking-wide text-rose-400 font-semibold">Possível queda de energia / reinicialização</p>
+          <p id="stat-energia" class="text-2xl font-bold text-slate-100 mt-1">0</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">Múltiplos dispositivos afetados simultaneamente</p>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-700/80 rounded-xl p-3">
+          <p class="text-[11px] uppercase tracking-wide text-indigo-400 font-semibold">Queda de rede / comunicação</p>
+          <p id="stat-rede" class="text-2xl font-bold text-slate-100 mt-1">0</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">Falhas pontuais de conectividade</p>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-700/80 rounded-xl p-3">
+          <p class="text-[11px] uppercase tracking-wide text-cyan-400 font-semibold">Reconexões detectadas</p>
+          <p id="stat-reconexao" class="text-2xl font-bold text-slate-100 mt-1">0</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">Retornos bem-sucedidos ao estado online</p>
+        </div>
+      </div>
+
+      <!-- Gráfico por Hora -->
+      <div class="bg-slate-900/50 border border-slate-700/60 rounded-xl p-3">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-semibold text-slate-300">Distribuição de Eventos por Hora (24h)</span>
+          <span id="sc-resumo" class="text-xs text-slate-400">Carregando...</span>
+        </div>
+        <div class="relative h-[180px]"><canvas id="sc-canvas"></canvas></div>
+      </div>
+
+      <!-- Tabela de Logs de Eventos Recentes -->
+      <div class="space-y-2">
+        <div class="flex justify-between items-center">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Registro de Ocorrências e Reconexões</h4>
+          <span class="text-[11px] text-slate-500">Mostrando eventos detectados nas últimas 24h</span>
+        </div>
+        <div class="scroll max-h-60 overflow-y-auto border border-slate-700/60 rounded-lg bg-slate-900/80">
+          <table class="w-full text-xs tabular-nums">
+            <thead class="text-[11px] text-slate-400 bg-slate-900 sticky top-0">
+              <tr>
+                <th class="px-3 py-2 text-left">Início da Queda</th>
+                <th class="px-3 py-2 text-left">Dispositivo / Entidade</th>
+                <th class="px-3 py-2 text-left">Diagnóstico</th>
+                <th class="px-3 py-2 text-left">Duração Offline</th>
+                <th class="px-3 py-2 text-left">Evidência / Log</th>
+              </tr>
+            </thead>
+            <tbody id="sc-tabela-logs" class="divide-y divide-slate-700/50">
+              <tr><td colspan="5" class="px-3 py-6 text-center text-slate-500">Carregando logs de eventos...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Seção Principal de Dispositivos e Filtros -->
+    <section class="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
+      <div class="p-3 flex flex-wrap gap-2 items-center border-b border-slate-700">
+        <input id="q" type="search" placeholder="Buscar nome, modelo ou entidade…" class="flex-1 min-w-[12rem] bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
+        <div id="seg" class="flex rounded-lg overflow-hidden border border-slate-700 text-xs"></div>
+        <select id="integ" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"></select>
+        <select id="area" class="hidden bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"></select>
+        
+        <button id="sync" class="bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-3 py-1.5">↻ Sincronizar agora</button>
+        <button id="btnTelegram" onclick="enviarAlertaTelegram()" class="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+          <span>📤 Enviar Telegram</span>
+        </button>
+      </div>
+      
+      <div id="telegramStatus" class="px-3 py-1 text-xs text-slate-400 hidden bg-slate-900/50 border-b border-slate-700/50"></div>
+
+      <div class="scroll overflow-auto max-h-[calc(100vh-16rem)] min-h-[12rem]">
+        <table class="w-full text-xs">
+          <thead class="text-[11px] uppercase tracking-wide text-slate-400">
+            <tr class="bg-slate-900">
+              <th class="px-3 py-2 text-left">Status</th>
+              <th class="px-3 py-2 text-left">Dispositivo</th>
+              <th class="px-3 py-2 text-left">Integração</th>
+              <th class="px-3 py-2 text-left">Entidade (fora/total)</th>
+              <th class="px-3 py-2 text-left hidden lg:table-cell">Tipo</th>
+              <th class="px-3 py-2 text-left hidden md:table-cell">Cômodo</th>
+              <th class="px-3 py-2 text-left hidden sm:table-cell">Offline há</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="foot" class="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-700"></div>
+    </section>
+  </main>
+
+  <!-- Modal de histórico de 30 dias -->
+  <div id="modalHistorico" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitulo">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden m-4">
+      <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+        <div>
+          <h3 id="modalTitulo" class="text-base font-semibold text-slate-100">Histórico de Longo Prazo</h3>
+          <p id="modalSubtitulo" class="text-xs text-slate-400 font-mono mt-0.5"></p>
+        </div>
+        <button id="btnFecharHistorico" type="button" class="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg p-1.5 transition-colors">✕ Fechar</button>
+      </div>
+      <div class="p-4 overflow-y-auto scroll flex-1">
+        <div id="modalConteudo" class="space-y-2"><p class="text-sm text-slate-500 text-center py-8">Selecione uma entidade.</p></div>
+      </div>
+      <div class="p-3 border-t border-slate-700 bg-slate-800/30 text-right text-xs text-slate-500">
+        Registros de alteração dos últimos 30 dias (via home-assistant_v2.db)
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { nav, loadDevices, isOff, visible, STATUS, esc, auto, ago, pref } from '/static/ui.js';
+    nav('painel');
+    const $ = id => document.getElementById(id);
+    const MODES = [
+      ['off', 'Indisponíveis', isOff],
+      ['ok', 'Online', d => d.status === 'ok'],
+      ['none', 'Sem estado', d => d.status === 'no_entities'],
+      ['all', 'Todos', () => true],
+    ];
+    const rank = { unavailable: 0, partial: 1, no_entities: 2, ok: 3 };
+    let ds = [], at = null, mode = 'off';
+    const open = new Set();
+
+    function select(el, label, counts, keep) {
+      el.innerHTML = `<option value="">${label}</option>` + Object.entries(counts).sort().map(([k, c]) =>
+        `<option value="${esc(k)}" ${k === keep ? 'selected' : ''}>${esc(k)} (${c})</option>`).join('');
+    }
+
+    function render() {
+      const base = visible(ds);
+      const n = f => base.filter(f).length;
+      const hidden = ds.length - base.length;
+
+      $('metrics').innerHTML = [
+        ['Total de dispositivos', base.length, 'text-cyan-300', hidden ? `${hidden} demo oculto(s)` : ''],
+        ['Online', n(d => d.status === 'ok'), 'text-emerald-400', ''],
+        ['Indisponíveis', n(isOff), 'text-red-400', `${n(d => d.status === 'unavailable')} offline · ${n(d => d.status === 'partial')} parcial`],
+        ['Sem estado', n(d => d.status === 'no_entities'), 'text-slate-300', 'sem entidades no HA'],
+        ['Última sincronização', at ? at.toLocaleTimeString('pt-BR') : '–', 'text-indigo-300', 'automática a cada 30 s'],
+      ].map(([l, v, c, s]) => `
+        <div class="bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-2.5">
+          <p class="text-[11px] uppercase tracking-wide text-slate-400">${l}</p>
+          <p class="text-2xl font-semibold leading-tight ${c}">${v}</p>
+          <p class="text-[11px] text-slate-500 h-4">${s}</p>
+        </div>`).join('');
+
+      const pass = MODES.find(m => m[0] === mode)[2];
+      $('seg').innerHTML = MODES.map(([k, l, f]) =>
+        `<button data-m="${k}" class="px-3 py-1.5 ${k === mode ? 'bg-indigo-500 text-white' : 'bg-slate-900 text-slate-300 hover:bg-slate-700'}">${l} <span class="opacity-70">${n(f)}</span></button>`).join('');
+
+      const byMode = base.filter(pass);
+      const count = key => byMode.reduce((a, d) => (a[d[key]] = (a[d[key]] || 0) + 1, a), {});
+      select($('integ'), 'Todas as integrações', count('integ'), $('integ').value);
+      const areas = count('area');
+      select($('area'), 'Todos os cômodos', areas, $('area').value);
+      $('area').classList.toggle('hidden', Object.keys(areas).length < 2);
+
+      const q = $('q').value.trim().toLowerCase(), ig = $('integ').value, ar = $('area').value;
+      const rows = byMode
+        .filter(d => (!ig || d.integ === ig) && (!ar || d.area === ar) &&
+          (!q || `${d.name} ${d.model || ''} ${d.entities.join(' ')}`.toLowerCase().includes(q)))
+        .sort((a, b) => rank[a.status] - rank[b.status] || a.integ.localeCompare(b.integ) || a.name.localeCompare(b.name));
+
+      $('rows').innerHTML = rows.length ? rows.map(d => {
+        const [label, txt, dot] = STATUS[d.status];
+        const nb = d.bad.length, ne = d.entities.length;
+        const detail = open.has(d.id) ? `<tr class="bg-slate-900/50"><td colspan="7" class="px-3 py-2">
+            <div class="flex flex-wrap gap-1">${d.entities.length ? d.entities.map(e =>
+              `<button type="button" data-history-entity="${esc(e)}" data-history-name="${esc(d.name)}" title="Clique para consultar histórico de 30 dias" class="px-1.5 py-0.5 rounded font-mono text-[11px] underline decoration-dotted underline-offset-2 hover:bg-indigo-500/20 ${d.bad.includes(e) ? 'bg-red-500/15 text-red-300' : 'bg-slate-700/60 text-slate-400'}">${esc(e)}</button>`).join('') : '<span class="text-slate-500">Sem entidades no Home Assistant</span>'}</div>
+            <p class="mt-1 text-[11px] text-slate-500">${esc(d.manufacturer || '—')} · ${esc(d.model || '—')} · ID ${esc(d.id)}</p></td></tr>` : '';
+        return `<tr data-id="${esc(d.id)}" class="border-t border-slate-700/50 hover:bg-slate-700/30 cursor-pointer">
+          <td class="px-3 py-1.5 whitespace-nowrap"><span class="inline-flex items-center gap-1.5 ${txt}"><span class="w-1.5 h-1.5 rounded-full ${dot} ${d.status === 'unavailable' ? 'animate-pulse' : ''}"></span>${label}</span></td>
+          <td class="px-3 py-1.5"><span class="font-medium text-slate-100">${esc(d.name)}</span> <span class="hidden xl:inline text-slate-500">${esc(d.model || '')}</span></td>
+          <td class="px-3 py-1.5"><span class="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300">${esc(d.integ)}</span></td>
+          <td class="px-3 py-1.5 font-mono text-cyan-300 max-w-[20rem] truncate">${nb ? esc(d.bad[0]) : '—'}${nb > 1 ? ` <span class="text-slate-500">+${nb - 1}</span>` : ''}${ne ? ` <span class="text-slate-500">(${nb}/${ne})</span>` : ''}</td>
+          <td class="px-3 py-1.5 hidden lg:table-cell">${d.types.slice(0, 4).map(t => `<span class="mr-1 px-1 rounded bg-slate-700 text-slate-300">${esc(t)}</span>`).join('')}</td>
+          <td class="px-3 py-1.5 hidden md:table-cell text-slate-400">${esc(d.area)}</td>
+          <td class="px-3 py-1.5 hidden sm:table-cell text-slate-400 whitespace-nowrap">${d.since ? ago(d.since) : '—'}</td>
+        </tr>${detail}`;
+      }).join('') : '<tr><td colspan="7" class="px-3 py-10 text-center text-slate-500">Nenhum dispositivo neste filtro</td></tr>';
+
+      $('foot').textContent = `Mostrando ${rows.length} de ${byMode.length} · clique numa linha para ver as entidades`;
+    }
+
+    async function sync() {
+      $('sync').disabled = true;
+      try { const r = await loadDevices(); ds = r.ds; at = r.at; render(); } catch { /* toast já exibido */ }
+      $('sync').disabled = false;
+    }
+
+    window.enviarAlertaTelegram = async function() {
+      const btn = $('btnTelegram');
+      const statusDiv = $('telegramStatus');
+      btn.disabled = true;
+      statusDiv.classList.remove('hidden');
+      statusDiv.innerHTML = '<span class="text-cyan-400">⏳ Enviando relatório para o Telegram...</span>';
+      try {
+        const response = await fetch('/api/notify?client_name=Central%20de%20Operações', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const result = await response.json();
+        if (response.ok) {
+          statusDiv.innerHTML = `<span class="text-emerald-400">✅ Relatório enviado com sucesso!</span>`;
+        } else {
+          statusDiv.innerHTML = `<span class="text-red-400">❌ Erro: ${result.detail || 'Falha ao disparar'}</span>`;
+        }
+      } catch (error) {
+        statusDiv.innerHTML = `<span class="text-red-400">❌ Erro de comunicação com a API.</span>`;
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => { statusDiv.classList.add('hidden'); }, 5000);
+      }
+    };
+
+    window.abrirModalHistorico = async function(entityId, nomeDispositivo) {
+      const modal = $('modalHistorico');
+      const titulo = $('modalTitulo');
+      const subtitulo = $('modalSubtitulo');
+      const conteudo = $('modalConteudo');
+
+      modal.classList.remove('hidden');
+      titulo.textContent = `Histórico (30 Dias) · ${nomeDispositivo}`;
+      subtitulo.textContent = `Entidade: ${entityId}`;
+      conteudo.innerHTML = '<p class="text-center py-10 text-cyan-400 animate-pulse text-sm">Consultando banco de dados do Home Assistant...</p>';
+
+      try {
+        const response = await fetch(`/api/historico-30dias?entity_id=${encodeURIComponent(entityId)}`);
+        const dados = await response.json();
+        if (!response.ok || dados.status !== 'success') {
+          conteudo.innerHTML = `<p class="text-sm text-red-400 text-center py-8">Erro ao carregar: ${esc(dados.detail || 'Falha desconhecida')}</p>`;
+          return;
+        }
+        if (!Array.isArray(dados.historico) || dados.historico.length === 0) {
+          conteudo.innerHTML = '<p class="text-sm text-slate-400 text-center py-8">Nenhum registro encontrado para esta entidade nos últimos 30 dias.</p>';
+          return;
+        }
+
+        conteudo.innerHTML = `
+          <div class="space-y-1.5">
+            <p class="text-xs text-slate-400 mb-3">Total de ${Number(dados.total_mudancas) || dados.historico.length} mudanças registradas:</p>
+            ${dados.historico.map(ev => {
+              const dataFormatada = new Date(Number(ev.timestamp) * 1000).toLocaleString('pt-BR');
+              let corBadge = 'bg-slate-800 text-slate-300 border-slate-700';
+              if (ev.state === 'on') corBadge = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+              else if (ev.state === 'off') corBadge = 'bg-slate-700/40 text-slate-300 border-slate-600';
+              else if (ev.state === 'unavailable' || ev.state === 'unknown') corBadge = 'bg-red-500/10 text-red-400 border-red-500/20';
+              return `<div class="flex items-center justify-between gap-3 bg-slate-800/40 border border-slate-700/60 rounded-lg px-3 py-2 text-xs">
+                <span class="text-slate-300 font-mono">${esc(dataFormatada)}</span>
+                <span class="px-2 py-0.5 rounded border font-mono font-medium ${corBadge}">${esc(ev.state)}</span>
+              </div>`;
+            }).join('')}
+          </div>`;
+      } catch (erro) {
+        conteudo.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Erro de conexão ao buscar o histórico de 30 dias.</p>';
+      }
+    };
+
+    window.fecharModalHistorico = function() { $('modalHistorico').classList.add('hidden'); };
+    $('btnFecharHistorico').addEventListener('click', window.fecharModalHistorico);
+    $('modalHistorico').addEventListener('click', e => { if (e.target === $('modalHistorico')) window.fecharModalHistorico(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('modalHistorico').classList.contains('hidden')) window.fecharModalHistorico(); });
+
+    $('q').oninput = render;
+    $('integ').onchange = render;
+    $('area').onchange = render;
+    $('sync').onclick = sync;
+    $('seg').onclick = e => { const b = e.target.closest('button'); if (b) { mode = b.dataset.m; render(); } };
+    $('rows').onclick = e => {
+      const historyButton = e.target.closest('button[data-history-entity]');
+      if (historyButton) {
+        e.stopPropagation();
+        window.abrirModalHistorico(historyButton.dataset.historyEntity, historyButton.dataset.historyName);
+        return;
+      }
+      const tr = e.target.closest('tr[data-id]');
+      if (!tr) return;
+      open.has(tr.dataset.id) ? open.delete(tr.dataset.id) : open.add(tr.dataset.id);
+      render();
+    };
+    window.addEventListener('prefs', render);
+    auto(sync);
+
+    // ---------- Lógica Analítica de Saúde e Ocorrências (Integrada com SQLite Tuya) ----------
     const SC = {
       urlDiaria: '/api/disponibilidade-diaria',
       refreshMs: 60000,
@@ -154,3 +463,6 @@
     $('btnAtualizarSaude').onclick = carregarSaudeConexao;
     carregarSaudeConexao();
     setInterval(carregarSaudeConexao, SC.refreshMs);
+  </script>
+</body>
+</html>
